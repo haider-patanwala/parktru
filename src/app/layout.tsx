@@ -1,8 +1,11 @@
 import "@/styles/globals.css";
 
 import type { Metadata, Viewport } from "next";
-import { Geist } from "next/font/google";
+import { Geist, Instrument_Sans } from "next/font/google";
 import { QueryProvider } from "@/app/providers";
+import { cn } from "@/lib/utils";
+
+const instrumentSans = Instrument_Sans({subsets:['latin'],variable:'--font-sans'});
 
 const APP_NAME = "Parktru";
 const APP_DESCRIPTION = "Parktru is a platform for parking your car";
@@ -42,7 +45,7 @@ export default function RootLayout({
 	children,
 }: Readonly<{ children: React.ReactNode }>) {
 	return (
-		<html className={`${geist.variable}`} lang="en">
+		<html className={cn(geist.variable, "font-sans", instrumentSans.variable)} lang="en">
 			<body>
 				<QueryProvider>{children}</QueryProvider>
 			</body>
