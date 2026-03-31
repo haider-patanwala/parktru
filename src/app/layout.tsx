@@ -14,8 +14,11 @@ export const metadata: Metadata = {
 		template: "%s - NJS App",
 	},
 	description: APP_DESCRIPTION,
-	icons: [{ rel: "icon", url: "/favicon.ico" }],
-	manifest: "/manifest.json",
+	manifest: "/manifest.webmanifest",
+	icons: {
+		apple: "/apple-touch-icon.png",
+		icon: "/icon-192x192.png",
+	},
 	appleWebApp: {
 		capable: true,
 		statusBarStyle: "default",
