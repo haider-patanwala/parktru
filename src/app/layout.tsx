@@ -2,6 +2,7 @@ import "@/styles/globals.css";
 
 import type { Metadata } from "next";
 import { Geist } from "next/font/google";
+import { QueryProvider } from "@/app/providers";
 
 export const metadata: Metadata = {
 	description: "Parktru",
@@ -18,10 +19,10 @@ export default function RootLayout({
 	children,
 }: Readonly<{ children: React.ReactNode }>) {
 	return (
-		<html
-			className={`${geist.variable}`}
-			lang='en'>
-			<body>{children}</body>
+		<html className={`${geist.variable}`} lang="en">
+			<body>
+				<QueryProvider>{children}</QueryProvider>
+			</body>
 		</html>
 	);
 }
