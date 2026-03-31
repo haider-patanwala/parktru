@@ -1,8 +1,10 @@
 import { Elysia, t } from "elysia";
+import { operatorOperationsController } from "@/features/operator-operations/controllers/operator-operations.controller";
 import { auth } from "@/server/better-auth/config";
 
 export const api = new Elysia({ prefix: "/api" })
 	.mount(auth.handler)
+	.use(operatorOperationsController)
 	.get("/health", () => ({
 		data: {
 			status: "healthy",
