@@ -1,5 +1,6 @@
 "use client";
 
+import { SerwistProvider } from "@serwist/next/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useState } from "react";
 
@@ -9,6 +10,8 @@ export function QueryProvider({
 	const [queryClient] = useState(() => new QueryClient());
 
 	return (
-		<QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+		<SerwistProvider swUrl="/sw.js">
+			<QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+		</SerwistProvider>
 	);
 }
