@@ -1,10 +1,14 @@
 "use client";
 
+import {
+	ArrowRightBigIcon,
+	CarTimeIcon,
+	DashboardCircleIcon,
+	FlashIcon,
+	HandCoinsIcon,
+} from "@hugeicons/core-free-icons";
+import { HugeiconsIcon } from "@hugeicons/react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import {
 	Select,
 	SelectContent,
@@ -15,13 +19,14 @@ import {
 } from "@/components/ui/select";
 import {
 	formatCurrency,
+	formatDuration,
 	unwrapApiResult,
 } from "@/features/operator-operations/lib/operator-operations.helpers";
 import type {
 	OperatorContext,
 	SessionLists,
 } from "@/features/operator-operations/models/operator-operations.types";
-import { authClient } from "@/server/better-auth/client";
+import { cn } from "@/lib/utils";
 import { eden } from "@/server/eden";
 import type { TabId } from "./operator-shell";
 
@@ -31,6 +36,13 @@ interface DashboardTabProps {
 	onSelectLot: (lotId: string) => void;
 	sessions: SessionLists | null;
 	onNavigate: (tab: TabId) => void;
+}
+
+function getGreeting() {
+	const hour = new Date().getHours();
+	if (hour < 12) return "Good morning";
+	if (hour < 17) return "Good afternoon";
+	return "Good evening";
 }
 
 export function DashboardTab({
@@ -45,9 +57,7 @@ export function DashboardTab({
 		operatorContext.allowedLots.find((l) => l.id === selectedLotId) ?? null;
 	const activeCount = sessions?.activeSessions.length ?? 0;
 	const recentCount = sessions?.recentSessions.length ?? 0;
-	const [currentBaseRate, setCurrentBaseRate] = useState(
-		String(activeLot?.baseRate ?? 0),
-	);
+	const activeSessions = sessions?.activeSessions ?? [];
 
 	const selectLotMutation = useMutation({
 		mutationFn: async (parkingLotId: string) =>
@@ -61,54 +71,24 @@ export function DashboardTab({
 		},
 	});
 
-	const setLotRateMutation = useMutation({
-		mutationFn: async () => {
-			const rate = Number(currentBaseRate);
-			if (!Number.isFinite(rate) || rate < 0)
-				throw new Error("Base rate must be a valid non-negative number.");
-			return unwrapApiResult<boolean>(
-				await eden.operator["lot-rate"].post({
-					baseRate: rate,
-					parkingLotId: selectedLotId ?? "",
-				}),
-			);
-		},
-		onSuccess: async () => {
-			await queryClient.invalidateQueries({ queryKey: ["operator-context"] });
-		},
-	});
-
-	const logoutMutation = useMutation({
-		mutationFn: async () => {
-			await authClient.signOut();
-		},
-	});
+	const firstName =
+		operatorContext.user.name?.split(" ")[0] ?? "Operator";
 
 	return (
 		<div className="safe-top flex flex-col gap-5 px-5 pt-6 pb-4">
-			{/* Header */}
-			<div className="flex items-start justify-between">
-				<div>
-					<p className="font-medium text-muted-foreground text-xs uppercase tracking-wider">
-						{operatorContext.tenant?.name}
-					</p>
-					<h1 className="mt-1 font-bold text-2xl tracking-tight">Dashboard</h1>
-				</div>
-				<Button
-					className="rounded-xl text-muted-foreground"
-					onClick={() => logoutMutation.mutate()}
-					size="sm"
-					variant="ghost"
-				>
-					Log out
-				</Button>
+			{/* Greeting header */}
+			<div>
+				<p className="text-muted-foreground text-sm">
+					{getGreeting()},{" "}
+					<span className="font-medium text-foreground">{firstName}</span>
+				</p>
+				<h1 className="mt-0.5 font-bold text-2xl tracking-tight">
+					{operatorContext.tenant?.name ?? "Dashboard"}
+				</h1>
 			</div>
 
-			{/* Lot selector */}
-			<div className="rounded-2xl bg-card p-4 ring-1 ring-border">
-				<p className="mb-3 font-medium text-muted-foreground text-xs uppercase tracking-wider">
-					Active lot
-				</p>
+			{/* Lot selector pill */}
+			{operatorContext.allowedLots.length > 1 ? (
 				<Select
 					disabled={selectLotMutation.isPending}
 					onValueChange={(value) => {
@@ -119,10 +99,15 @@ export function DashboardTab({
 					value={selectedLotId ?? null}
 				>
 					<SelectTrigger
-						className="h-12 w-full rounded-xl bg-secondary px-4"
+						className="h-11 w-full rounded-2xl bg-card px-4 ring-1 ring-border"
 						size="default"
 					>
-						<SelectValue placeholder="Select parking lot" />
+						<div className="flex items-center gap-2">
+							<span className="size-2 rounded-full bg-primary" />
+							<SelectValue placeholder="Select parking lot">
+								{activeLot?.name}
+							</SelectValue>
+						</div>
 					</SelectTrigger>
 					<SelectContent>
 						<SelectGroup>
@@ -134,90 +119,169 @@ export function DashboardTab({
 						</SelectGroup>
 					</SelectContent>
 				</Select>
-				{activeLot && (
-					<div className="mt-3 flex items-center gap-2">
-						<Badge className="rounded-lg" variant="outline">
+			) : (
+				activeLot && (
+					<div className="flex items-center gap-2.5 rounded-2xl bg-card px-4 py-3 ring-1 ring-border">
+						<span className="size-2 rounded-full bg-primary" />
+						<span className="font-medium text-sm">{activeLot.name}</span>
+						<span className="rounded-md bg-primary/10 px-2 py-0.5 font-mono text-primary text-xs">
 							{activeLot.code}
-						</Badge>
-						<Badge
-							className="rounded-lg"
-							variant={activeLot.status === "active" ? "default" : "secondary"}
-						>
-							{activeLot.status}
-						</Badge>
+						</span>
 					</div>
-				)}
+				)
+			)}
+
+			{/* Hero stats card */}
+			<div className="overflow-hidden rounded-3xl bg-gradient-to-br from-primary/15 via-primary/5 to-transparent p-5 ring-1 ring-primary/10">
+				<div className="flex items-start justify-between">
+					<div>
+						<p className="font-medium text-muted-foreground text-xs uppercase tracking-wider">
+							Vehicles parked
+						</p>
+						<p className="mt-2 font-bold text-5xl tracking-tighter text-foreground">
+							{activeCount}
+						</p>
+					</div>
+					<div className="flex size-12 items-center justify-center rounded-2xl bg-primary/15">
+						<HugeiconsIcon
+							icon={CarTimeIcon}
+							size={24}
+							strokeWidth={1.8}
+							className="text-primary"
+						/>
+					</div>
+				</div>
+
+				<div className="mt-4 flex gap-3">
+					<div className="flex-1 rounded-xl bg-background/60 px-3 py-2">
+						<p className="font-bold text-lg">{recentCount}</p>
+						<p className="text-muted-foreground text-xs">Exits today</p>
+					</div>
+					<div className="flex-1 rounded-xl bg-background/60 px-3 py-2">
+						<p className="font-bold text-lg">
+							{activeLot ? formatCurrency(activeLot.baseRate) : "--"}
+						</p>
+						<p className="text-muted-foreground text-xs">Base rate</p>
+					</div>
+				</div>
 			</div>
 
-			{/* Stats grid */}
+			{/* Quick actions */}
 			<div className="grid grid-cols-2 gap-3">
 				<button
-					className="rounded-2xl bg-primary/10 p-4 text-left transition-transform active:scale-[0.97]"
-					onClick={() => onNavigate("sessions")}
-					type="button"
-				>
-					<p className="font-bold text-3xl text-primary">{activeCount}</p>
-					<p className="mt-1 font-medium text-muted-foreground text-xs">
-						Active vehicles
-					</p>
-				</button>
-
-				<button
-					className="rounded-2xl bg-card p-4 text-left ring-1 ring-border transition-transform active:scale-[0.97]"
-					onClick={() => onNavigate("sessions")}
-					type="button"
-				>
-					<p className="font-bold text-3xl">{recentCount}</p>
-					<p className="mt-1 font-medium text-muted-foreground text-xs">
-						Recent exits
-					</p>
-				</button>
-
-				<button
-					className="col-span-2 rounded-2xl bg-card p-4 text-left ring-1 ring-border transition-transform active:scale-[0.97]"
+					className="group flex flex-col items-start gap-3 rounded-2xl bg-primary p-4 text-left text-primary-foreground transition-transform active:scale-[0.97]"
 					onClick={() => onNavigate("gate")}
 					type="button"
 				>
-					<div className="flex items-center justify-between">
-						<div>
-							<p className="font-semibold text-lg">
-								{activeLot ? formatCurrency(activeLot.baseRate) : "--"}
-							</p>
-							<p className="mt-0.5 font-medium text-muted-foreground text-xs">
-								Current base rate
-							</p>
-						</div>
-						<span className="rounded-xl bg-primary/10 px-3 py-1.5 font-medium text-primary text-sm">
-							Start gate
-						</span>
+					<div className="flex size-10 items-center justify-center rounded-xl bg-white/20">
+						<HugeiconsIcon
+							icon={FlashIcon}
+							size={20}
+							strokeWidth={2}
+						/>
+					</div>
+					<div>
+						<p className="font-semibold text-sm">New entry</p>
+						<p className="mt-0.5 text-primary-foreground/70 text-xs">
+							Open gate
+						</p>
+					</div>
+				</button>
+
+				<button
+					className="group flex flex-col items-start gap-3 rounded-2xl bg-card p-4 text-left ring-1 ring-border transition-transform active:scale-[0.97]"
+					onClick={() => onNavigate("sessions")}
+					type="button"
+				>
+					<div className="flex size-10 items-center justify-center rounded-xl bg-secondary">
+						<HugeiconsIcon
+							icon={DashboardCircleIcon}
+							size={20}
+							strokeWidth={2}
+							className="text-foreground"
+						/>
+					</div>
+					<div>
+						<p className="font-semibold text-sm">Sessions</p>
+						<p className="mt-0.5 text-muted-foreground text-xs">
+							{activeCount} active
+						</p>
 					</div>
 				</button>
 			</div>
 
-			{/* Rate management */}
-			{activeLot && (
-				<div className="rounded-2xl bg-card p-4 ring-1 ring-border">
-					<p className="mb-3 font-medium text-muted-foreground text-xs uppercase tracking-wider">
-						Lot base rate
-					</p>
-					<div className="flex gap-3">
-						<Input
-							className="h-12 flex-1 rounded-xl bg-secondary px-4 text-base"
-							min="0"
-							onChange={(event) => setCurrentBaseRate(event.target.value)}
-							step="1"
-							type="number"
-							value={currentBaseRate}
-						/>
-						<Button
-							className="h-12 rounded-xl px-5"
-							disabled={!selectedLotId || setLotRateMutation.isPending}
-							onClick={() => setLotRateMutation.mutate()}
+			{/* Live activity */}
+			{activeSessions.length > 0 && (
+				<div>
+					<div className="mb-3 flex items-center justify-between">
+						<p className="font-semibold text-sm">Live activity</p>
+						<button
+							className="flex items-center gap-1 text-primary text-xs"
+							onClick={() => onNavigate("sessions")}
 							type="button"
 						>
-							{setLotRateMutation.isPending ? "Saving..." : "Save"}
-						</Button>
+							View all
+							<HugeiconsIcon
+								icon={ArrowRightBigIcon}
+								size={14}
+								strokeWidth={2}
+							/>
+						</button>
 					</div>
+
+					<div className="flex flex-col gap-2">
+						{activeSessions.slice(0, 3).map((session) => (
+							<div
+								className="flex items-center gap-3 rounded-2xl bg-card px-4 py-3 ring-1 ring-border"
+								key={session.id}
+							>
+								<div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 font-bold font-mono text-primary text-xs">
+									{session.displayPlateNumber.slice(-4)}
+								</div>
+								<div className="min-w-0 flex-1">
+									<p className="truncate font-mono font-semibold text-sm tracking-wider">
+										{session.displayPlateNumber}
+									</p>
+									<p className="text-muted-foreground text-xs">
+										{session.customerName || session.customerPhone || "Walk-in"}
+									</p>
+								</div>
+								<div className="shrink-0 text-right">
+									<p className="font-medium text-primary text-sm">
+										{formatDuration(session.entryAt, new Date())}
+									</p>
+								</div>
+							</div>
+						))}
+
+						{activeSessions.length > 3 && (
+							<button
+								className="py-2 text-center text-muted-foreground text-xs"
+								onClick={() => onNavigate("sessions")}
+								type="button"
+							>
+								+{activeSessions.length - 3} more vehicles
+							</button>
+						)}
+					</div>
+				</div>
+			)}
+
+			{/* Empty state when no lot or no sessions */}
+			{activeLot && activeSessions.length === 0 && (
+				<div className="flex flex-col items-center rounded-2xl bg-card px-6 py-10 text-center ring-1 ring-border">
+					<div className="flex size-14 items-center justify-center rounded-2xl bg-secondary">
+						<HugeiconsIcon
+							icon={HandCoinsIcon}
+							size={28}
+							strokeWidth={1.5}
+							className="text-muted-foreground"
+						/>
+					</div>
+					<p className="mt-4 font-medium">No vehicles parked</p>
+					<p className="mt-1 text-muted-foreground text-sm">
+						Tap "New entry" to start a parking session
+					</p>
 				</div>
 			)}
 		</div>
