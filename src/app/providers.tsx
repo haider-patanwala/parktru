@@ -1,5 +1,6 @@
 "use client";
 
+import { ToastProvider } from "@heroui/react";
 import { SerwistProvider } from "@serwist/next/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useState } from "react";
@@ -11,7 +12,10 @@ export function QueryProvider({
 
 	return (
 		<SerwistProvider swUrl="/sw.js">
-			<QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+			<QueryClientProvider client={queryClient}>
+				{children}
+				<ToastProvider placement="top" />
+			</QueryClientProvider>
 		</SerwistProvider>
 	);
 }

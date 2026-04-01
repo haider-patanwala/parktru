@@ -5,16 +5,19 @@ import { Geist, Instrument_Sans } from "next/font/google";
 import { QueryProvider } from "@/app/providers";
 import { cn } from "@/lib/utils";
 
-const instrumentSans = Instrument_Sans({subsets:['latin'],variable:'--font-sans'});
+const instrumentSans = Instrument_Sans({
+	subsets: ["latin"],
+	variable: "--font-sans",
+});
 
-const APP_NAME = "Parktru";
-const APP_DESCRIPTION = "Parktru is a platform for parking your car";
+const APP_NAME = "ParkTru";
+const APP_DESCRIPTION = "Fast, offline-ready parking management for operators";
 
 export const metadata: Metadata = {
 	applicationName: APP_NAME,
 	title: {
 		default: APP_NAME,
-		template: "%s - NJS App",
+		template: "%s - ParkTru",
 	},
 	description: APP_DESCRIPTION,
 	manifest: "/manifest.webmanifest",
@@ -24,7 +27,7 @@ export const metadata: Metadata = {
 	},
 	appleWebApp: {
 		capable: true,
-		statusBarStyle: "default",
+		statusBarStyle: "black-translucent",
 		title: APP_NAME,
 	},
 	formatDetection: {
@@ -33,7 +36,12 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-	themeColor: "#000000",
+	themeColor: "#1a1a2e",
+	width: "device-width",
+	initialScale: 1,
+	maximumScale: 1,
+	userScalable: false,
+	viewportFit: "cover",
 };
 
 const geist = Geist({
@@ -45,8 +53,11 @@ export default function RootLayout({
 	children,
 }: Readonly<{ children: React.ReactNode }>) {
 	return (
-		<html className={cn(geist.variable, "font-sans", instrumentSans.variable)} lang="en">
-			<body>
+		<html
+			className={cn(geist.variable, "font-sans", instrumentSans.variable)}
+			lang="en"
+		>
+			<body className="overscroll-none">
 				<QueryProvider>{children}</QueryProvider>
 			</body>
 		</html>
