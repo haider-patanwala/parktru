@@ -2,15 +2,15 @@ import type { MetadataRoute } from "next";
 
 export default function manifest(): MetadataRoute.Manifest {
 	return {
-		name: "Parktru",
-		short_name: "Parktru",
-		description: "Parktru is a platform for parking your car.",
+		name: "ParkTru",
+		short_name: "ParkTru",
+		description: "Fast, offline-ready parking management for operators",
 		id: "/",
 		start_url: "/",
 		scope: "/",
 		display: "standalone",
-		background_color: "#ffffff",
-		theme_color: "#000000",
+		background_color: "#F4F5F5FF",
+		theme_color: "#F4F5F5FF",
 		orientation: "portrait",
 		lang: "en-US",
 		icons: [

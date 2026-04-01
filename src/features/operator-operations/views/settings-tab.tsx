@@ -73,26 +73,26 @@ export function SettingsTab({
 	});
 
 	return (
-		<div className="safe-top flex flex-col gap-5 px-5 pt-6 pb-4">
+		<div className='safe-top flex flex-col gap-5 px-5 pt-6 pb-4'>
 			{/* Header */}
 			<div>
-				<h1 className="font-bold text-2xl tracking-tight">Settings</h1>
+				<h1 className='font-bold text-2xl tracking-tight'>Settings</h1>
 			</div>
 
 			{/* Profile */}
-			<div className="rounded-2xl bg-card p-4 ring-1 ring-border">
-				<div className="flex items-center gap-3">
-					<div className="flex size-12 items-center justify-center rounded-2xl bg-primary/15">
-						<span className="font-bold text-lg text-primary">
+			<div className='rounded-2xl bg-card p-4 ring-1 ring-border'>
+				<div className='flex items-center gap-3'>
+					<div className='flex size-12 items-center justify-center rounded-2xl bg-primary/15'>
+						<span className='font-bold text-lg text-primary'>
 							{(operatorContext.user.name ??
 								operatorContext.user.email)?.[0]?.toUpperCase() ?? "U"}
 						</span>
 					</div>
-					<div className="min-w-0 flex-1">
-						<p className="truncate font-semibold">
+					<div className='min-w-0 flex-1'>
+						<p className='truncate font-semibold'>
 							{operatorContext.user.name ?? "Operator"}
 						</p>
-						<p className="truncate text-muted-foreground text-sm">
+						<p className='truncate text-muted-foreground text-sm'>
 							{operatorContext.user.email}
 						</p>
 					</div>
@@ -100,18 +100,18 @@ export function SettingsTab({
 			</div>
 
 			{/* Organization */}
-			<div className="rounded-2xl bg-card p-4 ring-1 ring-border">
-				<p className="mb-3 font-medium text-muted-foreground text-xs uppercase tracking-wider">
+			<div className='rounded-2xl bg-card p-4 ring-1 ring-border'>
+				<p className='mb-3 font-medium text-muted-foreground text-xs uppercase tracking-wider'>
 					Organization
 				</p>
-				<p className="font-semibold text-lg">
+				<p className='font-semibold text-lg'>
 					{operatorContext.tenant?.name ?? "No organization"}
 				</p>
 			</div>
 
 			{/* Lot selector */}
-			<div className="rounded-2xl bg-card p-4 ring-1 ring-border">
-				<p className="mb-3 font-medium text-muted-foreground text-xs uppercase tracking-wider">
+			<div className='rounded-2xl bg-card p-4 ring-1 ring-border'>
+				<p className='mb-3 font-medium text-muted-foreground text-xs uppercase tracking-wider'>
 					Parking lot
 				</p>
 				<Select
@@ -121,18 +121,21 @@ export function SettingsTab({
 						onSelectLot(value);
 						selectLotMutation.mutate(value);
 					}}
-					value={selectedLotId ?? null}
-				>
+					value={selectedLotId ?? null}>
 					<SelectTrigger
-						className="h-12 w-full rounded-xl bg-secondary px-4"
-						size="default"
-					>
-						<SelectValue placeholder="Select parking lot" />
+						className='h-12 w-full rounded-xl bg-secondary px-4'
+						size='default'>
+						<SelectValue placeholder='Select parking lot'>
+							{activeLot?.name}
+						</SelectValue>
 					</SelectTrigger>
 					<SelectContent>
 						<SelectGroup>
 							{operatorContext.allowedLots.map((lot) => (
-								<SelectItem key={lot.id} label={lot.name} value={lot.id}>
+								<SelectItem
+									key={lot.id}
+									label={lot.name}
+									value={lot.id}>
 									{lot.name}
 								</SelectItem>
 							))}
@@ -142,40 +145,40 @@ export function SettingsTab({
 
 				{activeLot && (
 					<>
-						<div className="mt-3 flex items-center gap-2">
-							<Badge className="rounded-lg" variant="outline">
+						<div className='mt-3 flex items-center gap-2'>
+							<Badge
+								className='rounded-lg'
+								variant='outline'>
 								{activeLot.code}
 							</Badge>
 							<Badge
-								className="rounded-lg"
+								className='rounded-lg'
 								variant={
 									activeLot.status === "active" ? "default" : "secondary"
-								}
-							>
+								}>
 								{activeLot.status}
 							</Badge>
 						</div>
 
-						<Separator className="my-4" />
+						<Separator className='my-4' />
 
-						<p className="mb-3 font-medium text-muted-foreground text-xs uppercase tracking-wider">
+						<p className='mb-3 font-medium text-muted-foreground text-xs uppercase tracking-wider'>
 							Base rate
 						</p>
-						<div className="flex gap-3">
+						<div className='flex gap-3'>
 							<Input
-								className="h-12 flex-1 rounded-xl bg-secondary px-4 text-base"
-								min="0"
+								className='h-12 flex-1 rounded-xl bg-secondary px-4 text-base'
+								min='0'
 								onChange={(event) => setCurrentBaseRate(event.target.value)}
-								step="1"
-								type="number"
+								step='1'
+								type='number'
 								value={currentBaseRate}
 							/>
 							<Button
-								className="h-12 rounded-xl px-5"
+								className='h-12 rounded-xl px-5'
 								disabled={!selectedLotId || setLotRateMutation.isPending}
 								onClick={() => setLotRateMutation.mutate()}
-								type="button"
-							>
+								type='button'>
 								{setLotRateMutation.isPending ? "Saving..." : "Save"}
 							</Button>
 						</div>
@@ -185,11 +188,10 @@ export function SettingsTab({
 
 			{/* Logout */}
 			<Button
-				className="h-13 rounded-2xl text-base"
+				className='h-13 rounded-2xl text-base'
 				onClick={() => logoutMutation.mutate()}
-				type="button"
-				variant="destructive"
-			>
+				type='button'
+				variant='destructive'>
 				Log out
 			</Button>
 		</div>

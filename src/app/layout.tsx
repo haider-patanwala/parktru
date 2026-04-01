@@ -36,7 +36,8 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-	themeColor: "#1a1a2e",
+	colorScheme: "light",
+	themeColor: "#F4F5F5FF",
 	width: "device-width",
 	initialScale: 1,
 	maximumScale: 1,
@@ -55,9 +56,8 @@ export default function RootLayout({
 	return (
 		<html
 			className={cn(geist.variable, "font-sans", instrumentSans.variable)}
-			lang="en"
-		>
-			<body className="overscroll-none">
+			lang='en'>
+			<body className='overscroll-none'>
 				<QueryProvider>{children}</QueryProvider>
 			</body>
 		</html>

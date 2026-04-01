@@ -21,6 +21,7 @@ export const auth = betterAuth({
 			disableDefaultReference: process.env.NODE_ENV === "production",
 		}),
 	],
+	trustedOrigins: ["*"],
 });
 
 export type Session = typeof auth.$Infer.Session;

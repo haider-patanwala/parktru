@@ -1,6 +1,7 @@
 /** @type {import("next").NextConfig} */
 const config = {
 	reactStrictMode: true,
+	allowedDevOrigins: ["click-biol-independence-courses.trycloudflare.com"],
 	async headers() {
 		return [
 			{
