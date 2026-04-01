@@ -73,7 +73,7 @@ export function DashboardTab({
 	const firstName = operatorContext.user.name?.split(" ")[0] ?? "Operator";
 
 	return (
-		<div className='safe-top flex flex-col gap-5 px-5 pt-6 pb-4'>
+		<div className='safe-top flex flex-col gap-5 px-5 pt-20 pb-4'>
 			{/* Greeting header */}
 			<div>
 				<p className='text-muted-foreground text-sm'>
@@ -134,7 +134,6 @@ export function DashboardTab({
 			<div className='overflow-hidden rounded-3xl bg-linear-to-br from-primary/15 via-primary/5 to-transparent p-5 ring-1 ring-primary/10'>
 				<div className='flex items-start justify-between'>
 					<div>
-						bg-linear-to-br
 						<p className='font-medium text-muted-foreground text-xs uppercase tracking-wider'>
 							Vehicles parked
 						</p>

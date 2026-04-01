@@ -27,6 +27,7 @@ import type {
 	ReceiptPreview,
 	SessionSnapshot,
 } from "@/features/operator-operations/models/operator-operations.types";
+import { PlateCameraSheet } from "@/features/operator-operations/views/plate-camera-sheet";
 import { eden } from "@/server/eden";
 
 function dateValueFromEntryAt(entryAt: string | Date): DateValue {
@@ -59,6 +60,7 @@ export function GateTab({
 	const [lookupResult, setLookupResult] = useState<PlateLookupResult | null>(
 		null,
 	);
+	const [isPlateCameraOpen, setIsPlateCameraOpen] = useState(false);
 	const [entryTimeDraft, setEntryTimeDraft] = useState<DateValue | null>(null);
 	const [finalAmount, setFinalAmount] = useState("0");
 	const [overrideAmount, setOverrideAmount] = useState("");
@@ -255,6 +257,12 @@ export function GateTab({
 
 	return (
 		<div className="safe-top flex flex-col gap-4 px-5 pt-6 pb-4">
+			<PlateCameraSheet
+				onConfirm={setPlateNumber}
+				onOpenChange={setIsPlateCameraOpen}
+				open={isPlateCameraOpen}
+			/>
+
 			{/* Header */}
 			<div className="flex items-center justify-between">
 				<div>
@@ -277,6 +285,27 @@ export function GateTab({
 						placeholder="MH12AB1234"
 						value={plateNumber}
 					/>
+					<Button
+						aria-label="Scan vehicle plate"
+						className="h-14 rounded-xl px-4"
+						onClick={() => setIsPlateCameraOpen(true)}
+						type="button"
+						variant="outline"
+					>
+						<svg
+							aria-hidden="true"
+							className="size-5"
+							fill="none"
+							stroke="currentColor"
+							strokeLinecap="round"
+							strokeLinejoin="round"
+							strokeWidth="1.8"
+							viewBox="0 0 24 24"
+						>
+							<path d="M4 8a2 2 0 012-2h2l1.2-1.4A2 2 0 0110.74 4h2.52a2 2 0 011.54.6L16 6h2a2 2 0 012 2v8a2 2 0 01-2 2H6a2 2 0 01-2-2z" />
+							<circle cx="12" cy="13" r="3.5" />
+						</svg>
+					</Button>
 					<Button
 						className="h-14 rounded-xl px-5 text-base"
 						disabled={!plateNumber.trim() || lookupMutation.isPending}

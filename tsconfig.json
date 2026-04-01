@@ -29,7 +29,12 @@
 		"target": "es2022",
 		"verbatimModuleSyntax": true
 	},
-	"exclude": ["node_modules", "generated", "public/sw.js"],
+	"exclude": [
+		"node_modules",
+		"generated",
+		"public/sw.js",
+		"public/tesseract/**/*.js"
+	],
 	"include": [
 		"next-env.d.ts",
 		"**/*.ts",
