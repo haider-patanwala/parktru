@@ -1,5 +1,6 @@
 /** @type {import("next").NextConfig} */
 const config = {
+	output: "standalone",
 	reactStrictMode: true,
 	allowedDevOrigins: ["click-biol-independence-courses.trycloudflare.com"],
 	async headers() {
