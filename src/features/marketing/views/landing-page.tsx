@@ -6,6 +6,7 @@ import {
 	CardHeader,
 	CardTitle,
 } from "@/components/ui/card";
+import { LandingInstallCallout } from "@/features/pwa-install";
 
 const features = [
 	{
@@ -89,6 +90,7 @@ export function LandingPage() {
 								See what&apos;s inside
 							</Link>
 						</div>
+						<LandingInstallCallout />
 						<p className='mt-8 max-w-xl text-muted-foreground text-sm leading-relaxed'>
 							<strong className='font-medium text-foreground'>
 								Installed app?

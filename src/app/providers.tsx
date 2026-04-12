@@ -4,7 +4,7 @@ import { ToastProvider } from "@heroui/react";
 import { SerwistProvider } from "@serwist/next/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useState } from "react";
-import { InstallPwaNotice } from "@/features/pwa-install";
+import { InstallPwaNotice, PwaInstallProvider } from "@/features/pwa-install";
 
 export function QueryProvider({
 	children,
@@ -14,8 +14,10 @@ export function QueryProvider({
 	return (
 		<SerwistProvider swUrl="/sw.js">
 			<QueryClientProvider client={queryClient}>
-				{children}
-				<InstallPwaNotice />
+				<PwaInstallProvider>
+					{children}
+					<InstallPwaNotice />
+				</PwaInstallProvider>
 				<ToastProvider placement="top" />
 			</QueryClientProvider>
 		</SerwistProvider>
