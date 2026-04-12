@@ -1,0 +1,49 @@
+.next
+
+# Git
+.git
+.gitignore
+
+# IDE
+.vscode
+.idea
+.cursor
+.cursorignore
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+
+# Test files
+*.test.ts
+*.test.tsx
+*.spec.ts
+*.spec.tsx
+__tests__
+
+# Documentation
+README.md
+*.md
+!package.json
+
+# Environment files (build-time only, inject at runtime)
+.env
+.env.*
+!.env.example
+
+# Docker
+Dockerfile
+docker-compose*.yml
+.dockerignore
+
+# Misc
+*.tsbuildinfo
+biome.jsonc
+tsconfig.tsbuildinfo
+
+# Husky
+.husky
