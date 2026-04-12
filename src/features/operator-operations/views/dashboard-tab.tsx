@@ -200,9 +200,9 @@ export function DashboardTab({
 						/>
 					</div>
 					<div>
-						<p className="font-semibold text-sm">Sessions</p>
+						<p className="font-semibold text-sm">Parked</p>
 						<p className="mt-0.5 text-muted-foreground text-xs">
-							{activeCount} active
+							{activeCount} on lot
 						</p>
 					</div>
 				</button>
@@ -278,7 +278,7 @@ export function DashboardTab({
 					</div>
 					<p className="mt-4 font-medium">No vehicles parked</p>
 					<p className="mt-1 text-muted-foreground text-sm">
-						Tap "New entry" to start a parking session
+						Tap "New entry" to record a parking visit
 					</p>
 				</div>
 			)}

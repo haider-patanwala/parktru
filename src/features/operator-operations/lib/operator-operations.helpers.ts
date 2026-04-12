@@ -102,17 +102,24 @@ export function buildSharePath(receiptId: string, shareToken: string) {
 	return `/receipts/${receiptId}?token=${encodeURIComponent(shareToken)}`;
 }
 
-/** Opens WhatsApp with a prefilled session summary; uses customer phone when valid. */
+/** User-facing label for a parking visit (active = still on lot, closed = exited). */
+export function parkingVisitStatusLabel(
+	status: SessionSnapshot["status"],
+): string {
+	return status === "active" ? "Parked" : "Exited";
+}
+
+/** Opens WhatsApp with a prefilled parking summary; uses customer phone when valid. */
 export function buildWhatsappUrlForSession(
 	session: SessionSnapshot,
 	parkingLotName: string,
 	moneyFormat: MoneyFormatOptions,
 ): string {
 	const lines: string[] = [
-		"Parking session",
+		"Parked vehicle",
 		`Lot: ${parkingLotName}`,
 		`Plate: ${session.displayPlateNumber}`,
-		`Status: ${session.status}`,
+		`Status: ${parkingVisitStatusLabel(session.status)}`,
 		`Customer: ${session.customerName || "—"} (${session.customerPhone || "—"})`,
 		`Entry: ${formatDateTime(session.entryAt, moneyFormat.countryCode)}`,
 	];

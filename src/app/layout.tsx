@@ -56,8 +56,9 @@ export default function RootLayout({
 	return (
 		<html
 			className={cn(geist.variable, "font-sans", instrumentSans.variable)}
-			lang='en'>
-			<body className='overscroll-none'>
+			lang="en"
+		>
+			<body className="overscroll-none">
 				<QueryProvider>{children}</QueryProvider>
 			</body>
 		</html>

@@ -4,6 +4,7 @@ import {
 	closeParkingExit,
 	createParkingEntry,
 	createParkingGateForLot,
+	createParkingLotForOperator,
 	generateReceiptLink,
 	getLotReport,
 	getOperatorContextForUser,
@@ -91,6 +92,49 @@ export const operatorOperationsController = new Elysia({
 				baseRate: t.Numeric({ minimum: 0 }),
 				initialLotName: t.String({ minLength: 2 }),
 				tenantName: t.String({ minLength: 2 }),
+			}),
+		},
+	)
+	.post(
+		"/parking-lot",
+		async ({ body, request, set }) => {
+			const user = await getAuthenticatedUser(request);
+
+			if (!user) {
+				set.status = 401;
+				return failure("Sign in before adding parking lots.");
+			}
+
+			const name = body.name.trim();
+			if (name.length < 2) {
+				set.status = 400;
+				return failure("Lot name must be at least 2 characters.");
+			}
+
+			const context = await createParkingLotForOperator({
+				baseRate: body.baseRate,
+				name,
+				user: {
+					email: user.email,
+					id: user.id,
+					name: user.name,
+					role: "role" in user ? user.role : null,
+				},
+			});
+
+			if (!context) {
+				set.status = 409;
+				return failure(
+					"Create an operator workspace before adding parking lots.",
+				);
+			}
+
+			return success(context);
+		},
+		{
+			body: t.Object({
+				baseRate: t.Optional(t.Numeric({ minimum: 0 })),
+				name: t.String({ minLength: 1 }),
 			}),
 		},
 	)
@@ -225,7 +269,7 @@ export const operatorOperationsController = new Elysia({
 
 			if (!user) {
 				set.status = 401;
-				return failure("Sign in to load parking sessions.");
+				return failure("Sign in to see who is parked.");
 			}
 
 			const context = await getOperatorContextForUser({
@@ -522,7 +566,9 @@ export const operatorOperationsController = new Elysia({
 
 			if (!context.tenant) {
 				set.status = 409;
-				return failure("Create an operator workspace before editing sessions.");
+				return failure(
+					"Create an operator workspace before editing parking records.",
+				);
 			}
 
 			const updated = await updateParkingEntryTime({
@@ -534,7 +580,7 @@ export const operatorOperationsController = new Elysia({
 
 			if (!updated) {
 				set.status = 404;
-				return failure("The active parking session could not be found.");
+				return failure("No matching parked vehicle was found.");
 			}
 
 			return success(true);
@@ -651,7 +697,7 @@ export const operatorOperationsController = new Elysia({
 
 			if (!closed) {
 				set.status = 404;
-				return failure("The active parking session could not be found.");
+				return failure("No matching parked vehicle was found.");
 			}
 
 			return success(closed);
@@ -696,7 +742,7 @@ export const operatorOperationsController = new Elysia({
 			if (!preview) {
 				set.status = 404;
 				return failure(
-					"The closed parking session could not be found for receipt sharing.",
+					"That completed exit could not be found for receipt sharing.",
 				);
 			}
 

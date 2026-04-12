@@ -445,6 +445,110 @@ export async function bootstrapOperatorWorkspace(input: {
 	return getOperatorContextForUser(input.user);
 }
 
+export async function createParkingLotForOperator(input: {
+	baseRate?: number;
+	name: string;
+	user: SessionUserLike;
+}) {
+	await ensureConnected();
+
+	const profile = await OperatorProfileModel.findOne({
+		userId: input.user.id,
+	}).exec();
+
+	if (!profile?.tenantId) {
+		return null;
+	}
+
+	const trimmedName = input.name.trim();
+	if (trimmedName.length < 2) {
+		return null;
+	}
+
+	const tenantId = profile.tenantId;
+
+	let baseRate: number;
+	let countryCode = DEFAULT_COUNTRY_CODE;
+	let currencyCode = DEFAULT_CURRENCY_CODE;
+
+	const explicitRate =
+		input.baseRate !== undefined &&
+		Number.isFinite(input.baseRate) &&
+		input.baseRate >= 0;
+
+	if (explicitRate) {
+		baseRate = input.baseRate as number;
+		if (profile.selectedParkingLotId) {
+			const siblingRate = await ParkingLotRateModel.findOne({
+				parkingLotId: profile.selectedParkingLotId,
+				tenantId,
+			})
+				.lean()
+				.exec();
+			if (siblingRate) {
+				countryCode = siblingRate.countryCode;
+				currencyCode = siblingRate.currencyCode;
+			}
+		}
+	} else if (profile.selectedParkingLotId) {
+		const siblingRate = await ParkingLotRateModel.findOne({
+			parkingLotId: profile.selectedParkingLotId,
+			tenantId,
+		})
+			.lean()
+			.exec();
+		if (siblingRate) {
+			baseRate = siblingRate.baseRate;
+			countryCode = siblingRate.countryCode;
+			currencyCode = siblingRate.currencyCode;
+		} else {
+			baseRate = 0;
+		}
+	} else {
+		baseRate = 0;
+	}
+
+	const lot = await ParkingLotModel.create({
+		code: buildParkingLotCode(trimmedName),
+		createdBy: input.user.id,
+		name: trimmedName,
+		tenantId,
+		updatedBy: input.user.id,
+	});
+
+	await ParkingLotRateModel.create({
+		baseRate,
+		countryCode,
+		currencyCode,
+		parkingLotId: lot._id,
+		tenantId,
+		updatedBy: input.user.id,
+	});
+
+	const gate = await ParkingGateModel.create({
+		code: buildParkingGateCode("GATE"),
+		createdBy: input.user.id,
+		name: "Main gate",
+		parkingLotId: lot._id,
+		status: "active",
+		tenantId,
+		updatedBy: input.user.id,
+	});
+
+	await OperatorProfileModel.updateOne(
+		{ userId: input.user.id },
+		{
+			$push: { allowedParkingLotIds: lot._id },
+			$set: {
+				selectedParkingGateId: gate._id,
+				selectedParkingLotId: lot._id,
+			},
+		},
+	).exec();
+
+	return getOperatorContextForUser(input.user);
+}
+
 export async function setSelectedParkingLotForUser(input: {
 	parkingLotId: string;
 	userId: string;

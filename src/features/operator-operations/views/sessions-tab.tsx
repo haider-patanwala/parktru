@@ -7,6 +7,7 @@ import {
 	formatDateTime,
 	formatDuration,
 	type MoneyFormatOptions,
+	parkingVisitStatusLabel,
 } from "@/features/operator-operations/lib/operator-operations.helpers";
 import type {
 	ReceiptPreview,
@@ -72,7 +73,7 @@ function SessionRow({
 						className="shrink-0 rounded-md text-[0.6rem]"
 						variant={isActive ? "default" : "outline"}
 					>
-						{session.status}
+						{parkingVisitStatusLabel(session.status)}
 					</Badge>
 				</div>
 				<div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-muted-foreground text-xs">
@@ -144,9 +145,9 @@ export function SessionsTab({
 		<div className="safe-top flex flex-col gap-4 px-5 pt-6 pb-4">
 			{/* Header */}
 			<div>
-				<h1 className="font-bold text-2xl tracking-tight">Sessions</h1>
+				<h1 className="font-bold text-2xl tracking-tight">Parked</h1>
 				<p className="mt-1 text-muted-foreground text-sm">
-					{activeSessions.length} active, {recentSessions.length} recent
+					{activeSessions.length} on lot · {recentSessions.length} recent exits
 				</p>
 			</div>
 
@@ -162,7 +163,7 @@ export function SessionsTab({
 					onClick={() => setFilter("active")}
 					type="button"
 				>
-					Active ({activeSessions.length})
+					On lot ({activeSessions.length})
 				</button>
 				<button
 					className={cn(
@@ -174,11 +175,11 @@ export function SessionsTab({
 					onClick={() => setFilter("recent")}
 					type="button"
 				>
-					Recent ({recentSessions.length})
+					Recent exits ({recentSessions.length})
 				</button>
 			</div>
 
-			{/* Session list */}
+			{/* Parked list */}
 			{isLoading ? (
 				<div className="flex flex-col gap-3">
 					{[1, 2, 3].map((i) => (
@@ -204,13 +205,13 @@ export function SessionsTab({
 				<div className="flex flex-col items-center justify-center rounded-2xl bg-card px-6 py-12 text-center ring-1 ring-border">
 					<p className="font-medium text-muted-foreground">
 						{filter === "active"
-							? "No active vehicles in this lot"
-							: "No recent closed sessions"}
+							? "No vehicles on lot"
+							: "No recent exits yet"}
 					</p>
 					<p className="mt-1 text-muted-foreground/60 text-xs">
 						{filter === "active"
 							? "Create an entry from the Gate tab"
-							: "Completed sessions will appear here"}
+							: "Completed exits will appear here"}
 					</p>
 				</div>
 			)}

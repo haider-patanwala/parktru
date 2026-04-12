@@ -25,6 +25,7 @@ import {
 	formatDateTime,
 	type MoneyFormatOptions,
 	moneyFormatFromLot,
+	parkingVisitStatusLabel,
 	unwrapApiResult,
 } from "@/features/operator-operations/lib/operator-operations.helpers";
 import type {
@@ -78,7 +79,7 @@ function SessionRow({
 					<Badge
 						className='rounded-full px-2 py-0 text-[0.65rem]'
 						variant={session.status === "closed" ? "secondary" : "default"}>
-						{session.status === "closed" ? "Closed" : "Active"}
+						{parkingVisitStatusLabel(session.status)}
 					</Badge>
 				</div>
 				<p className='mt-1 text-muted-foreground text-xs'>
@@ -342,7 +343,7 @@ export function ReportsTab({
 							value='vehicles'>
 							{report.cars.length === 0 ? (
 								<div className='rounded-[1.5rem] bg-white px-5 py-10 text-center text-muted-foreground text-sm ring-1 ring-border dark:bg-card'>
-									No session data yet for this lot.
+									No parking history yet for this lot.
 								</div>
 							) : (
 								report.cars.map((row: CarReportRow) => (
@@ -472,8 +473,8 @@ export function ReportsTab({
 							</h2>
 							<p className='truncate text-muted-foreground text-sm'>
 								{detail.kind === "vehicle"
-									? "Sessions and payments for this plate at this lot."
-									: "Sessions linked to this phone number at this lot."}
+									? "Parking visits and payments for this plate at this lot."
+									: "Parking visits linked to this phone number at this lot."}
 							</p>
 						</div>
 					</header>
@@ -515,12 +516,12 @@ export function ReportsTab({
 									</div>
 									<Separator />
 									<p className='font-semibold text-muted-foreground text-xs uppercase tracking-wide'>
-										Session history
+										Visit history
 									</p>
 									<div className='flex flex-col gap-2 pb-8'>
 										{detailQuery.data.length === 0 ? (
 											<p className='text-muted-foreground text-sm'>
-												No sessions found.
+												No visits found.
 											</p>
 										) : (
 											detailQuery.data.map((session) => (

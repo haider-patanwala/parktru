@@ -188,6 +188,15 @@
 	}
 	body {
 		@apply bg-background text-foreground antialiased;
+		/* Browser + notched devices: at least 1rem, or safe-area when larger */
+		padding-top: max(1rem, env(safe-area-inset-top, 0px));
+	}
+
+	/* Installed PWA: safe-area can read 0 on some Android shells; bump minimum */
+	@media (display-mode: standalone) {
+		body {
+			padding-top: max(1.25rem, env(safe-area-inset-top, 0px));
+		}
 	}
 	html {
 		@apply font-sans;

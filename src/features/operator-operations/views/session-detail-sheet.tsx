@@ -16,6 +16,7 @@ import {
 	formatDateTime,
 	formatDuration,
 	type MoneyFormatOptions,
+	parkingVisitStatusLabel,
 } from "@/features/operator-operations/lib/operator-operations.helpers";
 import type {
 	ReceiptPreview,
@@ -80,14 +81,14 @@ export function SessionDetailSheet({
 								{session.displayPlateNumber}
 							</SheetTitle>
 							<SheetDescription className='text-start text-muted-foreground text-sm'>
-								Session report · {parkingLotName}
+								Parking details · {parkingLotName}
 							</SheetDescription>
 						</SheetHeader>
 
 						<div className='flex flex-wrap items-center gap-2'>
 							<Badge
 								variant={session.status === "active" ? "default" : "secondary"}>
-								{session.status === "active" ? "Active" : "Closed"}
+								{parkingVisitStatusLabel(session.status)}
 							</Badge>
 							{session.parkingGateName ? (
 								<span className='text-muted-foreground text-xs'>

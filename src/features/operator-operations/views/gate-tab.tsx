@@ -397,7 +397,7 @@ export function GateTab({
 					<div className="mb-3 flex items-center gap-2">
 						<span className="size-2 rounded-full bg-warning" />
 						<p className="font-semibold text-sm text-warning-foreground">
-							Active session found
+							Vehicle already parked
 						</p>
 					</div>
 					<p className="font-bold font-mono text-xl tracking-wider">

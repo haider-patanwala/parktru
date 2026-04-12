@@ -95,7 +95,7 @@ function TabIcon({ tab, active }: { tab: TabId; active: boolean }) {
 const TAB_LABELS: Record<TabId, string> = {
 	home: "Home",
 	gate: "Gate",
-	sessions: "Sessions",
+	sessions: "Parked",
 	reports: "Reports",
 	settings: "Settings",
 };
