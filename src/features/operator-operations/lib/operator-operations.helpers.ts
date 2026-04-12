@@ -1,3 +1,5 @@
+import type { SessionSnapshot } from "@/features/operator-operations/models/operator-operations.types";
+
 export function normalizePlateNumber(value: string) {
 	return value.toUpperCase().replace(/[^A-Z0-9]/g, "");
 }
@@ -9,19 +11,58 @@ export function buildParkingLotCode(name: string) {
 	return `${base}-${suffix}`;
 }
 
-export function formatCurrency(value: number) {
-	return new Intl.NumberFormat("en-IN", {
-		currency: "INR",
+export function buildParkingGateCode(name: string) {
+	const base = normalizePlateNumber(name).slice(0, 6) || "GATE";
+	const suffix = Math.random().toString(36).slice(2, 5).toUpperCase();
+
+	return `${base}-${suffix}`;
+}
+
+export type MoneyFormatOptions = {
+	countryCode: string;
+	currencyCode: string;
+};
+
+export const DEFAULT_MONEY_FORMAT: MoneyFormatOptions = {
+	countryCode: "IN",
+	currencyCode: "INR",
+};
+
+function localeForCountry(countryCode: string) {
+	return `en-${countryCode}`;
+}
+
+export function moneyFormatFromLot(
+	lot: { countryCode: string; currencyCode: string } | null | undefined,
+): MoneyFormatOptions {
+	if (!lot) return DEFAULT_MONEY_FORMAT;
+	return {
+		countryCode: lot.countryCode || DEFAULT_MONEY_FORMAT.countryCode,
+		currencyCode: lot.currencyCode || DEFAULT_MONEY_FORMAT.currencyCode,
+	};
+}
+
+export function formatCurrency(
+	value: number,
+	options?: Partial<MoneyFormatOptions>,
+) {
+	const { countryCode, currencyCode } = {
+		...DEFAULT_MONEY_FORMAT,
+		...options,
+	};
+	return new Intl.NumberFormat(localeForCountry(countryCode), {
+		currency: currencyCode,
 		maximumFractionDigits: 2,
 		minimumFractionDigits: 0,
 		style: "currency",
 	}).format(value);
 }
 
-export function formatDateTime(value: string | Date) {
+export function formatDateTime(value: string | Date, countryCode?: string) {
 	const date = value instanceof Date ? value : new Date(value);
+	const locale = countryCode ? localeForCountry(countryCode) : "en-IN";
 
-	return new Intl.DateTimeFormat("en-IN", {
+	return new Intl.DateTimeFormat(locale, {
 		dateStyle: "medium",
 		timeStyle: "short",
 	}).format(date);
@@ -59,6 +100,39 @@ export function toDatetimeLocalValue(value: string | Date): string {
 
 export function buildSharePath(receiptId: string, shareToken: string) {
 	return `/receipts/${receiptId}?token=${encodeURIComponent(shareToken)}`;
+}
+
+/** Opens WhatsApp with a prefilled session summary; uses customer phone when valid. */
+export function buildWhatsappUrlForSession(
+	session: SessionSnapshot,
+	parkingLotName: string,
+	moneyFormat: MoneyFormatOptions,
+): string {
+	const lines: string[] = [
+		"Parking session",
+		`Lot: ${parkingLotName}`,
+		`Plate: ${session.displayPlateNumber}`,
+		`Status: ${session.status}`,
+		`Customer: ${session.customerName || "—"} (${session.customerPhone || "—"})`,
+		`Entry: ${formatDateTime(session.entryAt, moneyFormat.countryCode)}`,
+	];
+	if (session.exitAt) {
+		lines.push(
+			`Exit: ${formatDateTime(session.exitAt, moneyFormat.countryCode)}`,
+		);
+	}
+	if (session.status === "closed" && session.finalAmount != null) {
+		lines.push(`Paid: ${formatCurrency(session.finalAmount, moneyFormat)}`);
+	}
+	if (session.parkingGateName) {
+		lines.push(`Gate: ${session.parkingGateName}`);
+	}
+	const text = lines.join("\n");
+	const digits = session.customerPhone?.replace(/\D/g, "") ?? "";
+	if (digits.length >= 10) {
+		return `https://wa.me/${digits}?text=${encodeURIComponent(text)}`;
+	}
+	return `https://wa.me/?text=${encodeURIComponent(text)}`;
 }
 
 export function extractErrorMessage(error: unknown) {

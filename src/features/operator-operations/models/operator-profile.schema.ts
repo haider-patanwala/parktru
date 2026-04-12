@@ -4,6 +4,7 @@ export interface OperatorProfileDocument {
 	allowedParkingLotIds: Types.ObjectId[];
 	createdAt: Date;
 	role: string;
+	selectedParkingGateId: Types.ObjectId | null;
 	selectedParkingLotId: Types.ObjectId | null;
 	tenantId: Types.ObjectId;
 	updatedAt: Date;
@@ -20,6 +21,11 @@ const operatorProfileSchema = new Schema(
 			default: "lot-operator",
 			required: true,
 			type: String,
+		},
+		selectedParkingGateId: {
+			default: null,
+			ref: "ParkingGate",
+			type: Schema.Types.ObjectId,
 		},
 		selectedParkingLotId: {
 			default: null,

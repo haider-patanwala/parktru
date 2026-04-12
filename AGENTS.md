@@ -27,16 +27,17 @@ Before making changes, inspect these files instead of assuming structure:
 - Better Auth
 - MongoDB via Mongoose
 - Serwist PWA/offline document fallback
+- `idb-keyval` for planned client IndexedDB persistence (local-first operational data)
 
 ## Important Constraint
 
-`zero` / `@rocicorp/zero` and the MongoDB change-source setup from `cbnsndwch/zero-sources` are target architecture for this project, but they are not installed in `package.json` yet.
+`idb-keyval` is the planned client-side persistence layer for offline-first operational data (IndexedDB). It is a small key-value store; **sync is not automatic**—features must implement explicit write/read paths and a sync/outbox that pushes to the server via Eden when online.
 
 Rules:
 
-- Do not invent `zero` imports, hooks, client APIs, or server adapters.
-- If a task requires Zero, add the real packages and wire them intentionally.
-- Until Zero is installed, use the existing stack and clearly separate planned Zero code from live code.
+- Do not invent `idb-keyval` APIs beyond what the installed package exports; use the real API.
+- Do not add `zero` / `@rocicorp/zero` or `zero-sources` unless the project explicitly chooses to adopt them later.
+- Keep local persistence and sync orchestration in feature `sync/` modules, not scattered in views.
 
 ## Non-Negotiables
 
@@ -74,7 +75,7 @@ src/
         <feature>-form.tsx
         <feature>-list.tsx
       sync/
-        <feature>.zero.ts
+        <feature>.idb.ts
         <feature>.sync.ts
       lib/
         <feature>.constants.ts
@@ -89,7 +90,7 @@ src/
 ## MVC Mapping
 
 - Models:
-  Schemas, domain types, repositories, database access, Zero collection definitions, sync metadata.
+  Schemas, domain types, repositories, database access, sync metadata for local-first entities (outbox, version keys, etc.).
 - Controllers:
   Use-case orchestration, validation handoff, auth checks, route handlers, query/mutation wrappers, invalidation logic.
 - Views:
@@ -120,26 +121,25 @@ If code is only used by one feature, keep it inside that feature.
 
 Preferred flow:
 
-`View -> feature controller/query hook -> Eden client or Zero client -> Elysia route/controller -> model/repository -> MongoDB`
+`View -> feature controller/query hook -> Eden client (+ idb-keyval where local-first applies) -> Elysia route/controller -> model/repository -> MongoDB`
 
 Specific rules:
 
 - Define request and response contracts once in Elysia and consume them through Eden.
 - Do not duplicate API request types on the client if Eden can infer them.
 - Query keys and query options must live with the feature that owns the data.
-- Use TanStack Query for server-backed cache and async workflows that are not local-first synced collections.
-- Once Zero is added, use Zero as the source of truth for offline/shared synced entities.
-- Do not cache the same entity in both TanStack Query and Zero unless there is an explicit boundary and ownership is clear.
+- Use TanStack Query for server-backed cache and async workflows that are not owned by the local idb-keyval layer.
+- For entities that must work offline, use `idb-keyval` as the durable client store and define a single ownership rule: either TanStack Query holds a read-through cache or idb-keyval is canonical locally—never duplicate the same entity in both without an explicit boundary.
+- Server persistence stays MongoDB via repositories; there is no separate client sync engine—push/pull flows call normal Elysia endpoints.
 
 ## Offline-First Rules
 
-When Zero is added:
+When implementing local-first flows with `idb-keyval`:
 
-- Local-first writes should update local state first and sync afterward.
-- Syncable domain data should live under `src/features/<feature>/sync/`.
+- Local-first writes should persist to IndexedDB first, then enqueue or flush to the server via Eden when possible.
+- Syncable domain data and outbox logic should live under `src/features/<feature>/sync/`.
 - Keep sync logic out of React components.
-- Keep MongoDB change-source logic on the server/infrastructure side, not in view code.
-- If the MongoDB change-source implementation depends on `zero-sources`, use the real package/docs and do not approximate the API.
+- Keep reconciliation and conflict rules on the server where possible; the client stores opaque or versioned payloads as designed per feature.
 
 ## Reuse Rules
 
@@ -213,3 +213,12 @@ When relevant, load these repo-local skills:
   `.agents/skills/parktru-architecture/SKILL.md`
 - UI/design work:
   `.agents/skills/parktru-ui/SKILL.md`
+
+## graphify
+
+This project has a graphify knowledge graph at graphify-out/.
+
+Rules:
+- Before answering architecture or codebase questions, read graphify-out/GRAPH_REPORT.md for god nodes and community structure
+- If graphify-out/wiki/index.md exists, navigate it instead of reading raw files
+- After modifying code files in this session, run `python3 -c "from graphify.watch import _rebuild_code; from pathlib import Path; _rebuild_code(Path('.'))"` to keep the graph current

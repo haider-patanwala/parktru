@@ -2,7 +2,10 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
-import { unwrapApiResult } from "@/features/operator-operations/lib/operator-operations.helpers";
+import {
+	moneyFormatFromLot,
+	unwrapApiResult,
+} from "@/features/operator-operations/lib/operator-operations.helpers";
 import type {
 	OperatorContext,
 	ReceiptPreview,
@@ -15,6 +18,7 @@ import { DashboardTab } from "./dashboard-tab";
 import { GateTab } from "./gate-tab";
 import { OperatorShell, type TabId } from "./operator-shell";
 import { ReceiptOverlay } from "./receipt-overlay";
+import { ReportsTab } from "./reports-tab";
 import { SessionsTab } from "./sessions-tab";
 import { SettingsTab } from "./settings-tab";
 import { SetupScreen } from "./setup-screen";
@@ -36,6 +40,8 @@ export function OperatorOperationsPage() {
 	});
 
 	const operatorContext = operatorContextQuery.data ?? null;
+	const selectedLotSummary =
+		operatorContext?.allowedLots.find((l) => l.id === selectedLotId) ?? null;
 
 	useEffect(() => {
 		if (operatorContext?.selectedParkingLotId) {
@@ -126,14 +132,23 @@ export function OperatorOperationsPage() {
 
 				{activeTab === "sessions" && (
 					<SessionsTab
-						baseRate={
-							operatorContext.allowedLots.find((l) => l.id === selectedLotId)
-								?.baseRate ?? 0
-						}
+						baseRate={selectedLotSummary?.baseRate ?? 0}
 						isLoading={sessionsQuery.isPending}
+						moneyFormat={moneyFormatFromLot(selectedLotSummary)}
 						onReceiptReady={handleReceiptReady}
 						onSelectSession={handleSelectSession}
+						parkingLotName={selectedLotSummary?.name ?? "Parking lot"}
 						sessions={sessionsQuery.data ?? null}
+					/>
+				)}
+
+				{activeTab === "reports" && (
+					<ReportsTab
+						onNavigateToGate={() => setActiveTab("gate")}
+						onReceiptReady={handleReceiptReady}
+						onSelectLot={setSelectedLotId}
+						operatorContext={operatorContext}
+						selectedLotId={selectedLotId}
 					/>
 				)}
 

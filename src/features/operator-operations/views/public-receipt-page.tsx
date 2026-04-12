@@ -48,7 +48,10 @@ export function PublicReceiptPage({
 								Amount
 							</p>
 							<p className="mt-1 font-semibold text-2xl">
-								{formatCurrency(receipt.amount)}
+								{formatCurrency(receipt.amount, {
+									countryCode: receipt.countryCode,
+									currencyCode: receipt.currencyCode,
+								})}
 							</p>
 						</div>
 					</div>
@@ -74,10 +77,10 @@ export function PublicReceiptPage({
 							{formatDuration(receipt.entryAt, receipt.exitAt)}
 						</p>
 						<p className="mt-2 text-neutral-600">
-							Entered {formatDateTime(receipt.entryAt)}
+							Entered {formatDateTime(receipt.entryAt, receipt.countryCode)}
 						</p>
 						<p className="text-neutral-600">
-							Exited {formatDateTime(receipt.exitAt)}
+							Exited {formatDateTime(receipt.exitAt, receipt.countryCode)}
 						</p>
 					</div>
 				</div>
@@ -94,7 +97,7 @@ export function PublicReceiptPage({
 							Generated
 						</p>
 						<p className="mt-2 font-medium text-lg">
-							{formatDateTime(receipt.generatedAt)}
+							{formatDateTime(receipt.generatedAt, receipt.countryCode)}
 						</p>
 					</div>
 					<div>

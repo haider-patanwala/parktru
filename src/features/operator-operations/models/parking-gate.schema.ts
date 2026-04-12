@@ -1,44 +1,43 @@
 import { type Model, model, models, Schema, type Types } from "mongoose";
 
-export interface ParkingLotRateDocument {
-	baseRate: number;
-	/** ISO 4217 */
-	currencyCode: string;
-	/** ISO 3166-1 alpha-2 */
-	countryCode: string;
+export interface ParkingGateDocument {
+	code: string;
 	createdAt: Date;
+	createdBy: string;
+	name: string;
 	parkingLotId: Types.ObjectId;
+	status: "active" | "inactive";
 	tenantId: Types.ObjectId;
 	updatedAt: Date;
 	updatedBy: string;
 }
 
-const parkingLotRateSchema = new Schema(
+const parkingGateSchema = new Schema(
 	{
-		baseRate: {
-			min: 0,
-			required: true,
-			type: Number,
-		},
-		countryCode: {
-			default: "IN",
+		code: {
 			required: true,
 			trim: true,
 			type: String,
-			uppercase: true,
 		},
-		currencyCode: {
-			default: "INR",
+		createdBy: {
+			required: true,
+			type: String,
+		},
+		name: {
 			required: true,
 			trim: true,
 			type: String,
-			uppercase: true,
 		},
 		parkingLotId: {
 			index: true,
 			ref: "ParkingLot",
 			required: true,
 			type: Schema.Types.ObjectId,
+		},
+		status: {
+			default: "active",
+			enum: ["active", "inactive"],
+			type: String,
 		},
 		tenantId: {
 			index: true,
@@ -56,8 +55,11 @@ const parkingLotRateSchema = new Schema(
 	},
 );
 
-parkingLotRateSchema.index({ parkingLotId: 1, tenantId: 1 }, { unique: true });
+parkingGateSchema.index(
+	{ code: 1, parkingLotId: 1, tenantId: 1 },
+	{ unique: true },
+);
 
-export const ParkingLotRateModel =
-	(models.ParkingLotRate as Model<ParkingLotRateDocument> | undefined) ||
-	model<ParkingLotRateDocument>("ParkingLotRate", parkingLotRateSchema);
+export const ParkingGateModel =
+	(models.ParkingGate as Model<ParkingGateDocument> | undefined) ||
+	model<ParkingGateDocument>("ParkingGate", parkingGateSchema);

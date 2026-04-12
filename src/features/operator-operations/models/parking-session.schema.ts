@@ -13,6 +13,7 @@ export interface ParkingSessionDocument {
 	finalAmount: number | null;
 	normalizedPlateNumber: string;
 	overrideAmount: number | null;
+	parkingGateId: Types.ObjectId | null;
 	parkingLotId: Types.ObjectId;
 	receiptId: Types.ObjectId | null;
 	status: "active" | "closed";
@@ -74,6 +75,11 @@ const parkingSessionSchema = new Schema(
 			default: null,
 			min: 0,
 			type: Number,
+		},
+		parkingGateId: {
+			default: null,
+			ref: "ParkingGate",
+			type: Schema.Types.ObjectId,
 		},
 		parkingLotId: {
 			index: true,

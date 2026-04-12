@@ -3,11 +3,16 @@ import {
 	bootstrapOperatorWorkspace,
 	closeParkingExit,
 	createParkingEntry,
+	createParkingGateForLot,
 	generateReceiptLink,
+	getLotReport,
 	getOperatorContextForUser,
+	getReportSessionsForCar,
+	getReportSessionsForOwner,
 	getSessionsForLot,
 	lookupPlateForTenant,
 	setParkingLotBaseRate,
+	setSelectedParkingGateForUser,
 	setSelectedParkingLotForUser,
 	updateParkingEntryTime,
 } from "@/features/operator-operations/models/operator-operations.repository";
@@ -124,6 +129,95 @@ export const operatorOperationsController = new Elysia({
 			}),
 		},
 	)
+	.post(
+		"/select-gate",
+		async ({ body, request, set }) => {
+			const user = await getAuthenticatedUser(request);
+
+			if (!user) {
+				set.status = 401;
+				return failure("Sign in before switching gates.");
+			}
+
+			const updated = await setSelectedParkingGateForUser({
+				parkingGateId: body.parkingGateId,
+				userId: user.id,
+			});
+
+			if (!updated) {
+				set.status = 403;
+				return failure("That gate is not available for the current lot.");
+			}
+
+			return success(
+				await getOperatorContextForUser({
+					email: user.email,
+					id: user.id,
+					name: user.name,
+					role: "role" in user ? user.role : null,
+				}),
+			);
+		},
+		{
+			body: t.Object({
+				parkingGateId: t.String(),
+			}),
+		},
+	)
+	.post(
+		"/parking-gate",
+		async ({ body, request, set }) => {
+			const user = await getAuthenticatedUser(request);
+
+			if (!user) {
+				set.status = 401;
+				return failure("Sign in before creating gates.");
+			}
+
+			const context = await getOperatorContextForUser({
+				email: user.email,
+				id: user.id,
+				name: user.name,
+				role: "role" in user ? user.role : null,
+			});
+
+			if (!context.tenant) {
+				set.status = 409;
+				return failure("Create an operator workspace before adding gates.");
+			}
+
+			const allowed = context.allowedLots.some(
+				(lot) => lot.id === body.parkingLotId,
+			);
+
+			if (!allowed) {
+				set.status = 403;
+				return failure("That lot is not available for this operator.");
+			}
+
+			await createParkingGateForLot({
+				name: body.name.trim(),
+				parkingLotId: body.parkingLotId,
+				tenantId: context.tenant.id,
+				userId: user.id,
+			});
+
+			return success(
+				await getOperatorContextForUser({
+					email: user.email,
+					id: user.id,
+					name: user.name,
+					role: "role" in user ? user.role : null,
+				}),
+			);
+		},
+		{
+			body: t.Object({
+				name: t.String({ minLength: 2 }),
+				parkingLotId: t.String(),
+			}),
+		},
+	)
 	.get(
 		"/sessions",
 		async ({ query, request, set }) => {
@@ -168,6 +262,147 @@ export const operatorOperationsController = new Elysia({
 		{
 			query: t.Object({
 				parkingLotId: t.Optional(t.String()),
+			}),
+		},
+	)
+	.get(
+		"/reports",
+		async ({ query, request, set }) => {
+			const user = await getAuthenticatedUser(request);
+
+			if (!user) {
+				set.status = 401;
+				return failure("Sign in to view reports.");
+			}
+
+			const context = await getOperatorContextForUser({
+				email: user.email,
+				id: user.id,
+				name: user.name,
+				role: "role" in user ? user.role : null,
+			});
+			const parkingLotId = query.parkingLotId ?? context.selectedParkingLotId;
+
+			if (!context.tenant || !parkingLotId) {
+				return success({
+					cars: [],
+					closedSessionCount: 0,
+					owners: [],
+					totalRevenue: 0,
+					uniqueCarCount: 0,
+					uniqueOwnerCount: 0,
+				});
+			}
+
+			const allowed = context.allowedLots.some(
+				(lot) => lot.id === parkingLotId,
+			);
+
+			if (!allowed) {
+				set.status = 403;
+				return failure("That lot is not available for this operator.");
+			}
+
+			return success(
+				await getLotReport({
+					parkingLotId,
+					tenantId: context.tenant.id,
+				}),
+			);
+		},
+		{
+			query: t.Object({
+				parkingLotId: t.Optional(t.String()),
+			}),
+		},
+	)
+	.get(
+		"/reports/car",
+		async ({ query, request, set }) => {
+			const user = await getAuthenticatedUser(request);
+
+			if (!user) {
+				set.status = 401;
+				return failure("Sign in to view vehicle history.");
+			}
+
+			const context = await getOperatorContextForUser({
+				email: user.email,
+				id: user.id,
+				name: user.name,
+				role: "role" in user ? user.role : null,
+			});
+
+			if (!context.tenant) {
+				return success([]);
+			}
+
+			const allowed = context.allowedLots.some(
+				(lot) => lot.id === query.parkingLotId,
+			);
+
+			if (!allowed) {
+				set.status = 403;
+				return failure("That lot is not available for this operator.");
+			}
+
+			return success(
+				await getReportSessionsForCar({
+					normalizedPlateNumber: query.normalizedPlateNumber,
+					parkingLotId: query.parkingLotId,
+					tenantId: context.tenant.id,
+				}),
+			);
+		},
+		{
+			query: t.Object({
+				normalizedPlateNumber: t.String({ minLength: 1 }),
+				parkingLotId: t.String(),
+			}),
+		},
+	)
+	.get(
+		"/reports/owner",
+		async ({ query, request, set }) => {
+			const user = await getAuthenticatedUser(request);
+
+			if (!user) {
+				set.status = 401;
+				return failure("Sign in to view customer history.");
+			}
+
+			const context = await getOperatorContextForUser({
+				email: user.email,
+				id: user.id,
+				name: user.name,
+				role: "role" in user ? user.role : null,
+			});
+
+			if (!context.tenant) {
+				return success([]);
+			}
+
+			const allowed = context.allowedLots.some(
+				(lot) => lot.id === query.parkingLotId,
+			);
+
+			if (!allowed) {
+				set.status = 403;
+				return failure("That lot is not available for this operator.");
+			}
+
+			return success(
+				await getReportSessionsForOwner({
+					customerPhone: query.customerPhone,
+					parkingLotId: query.parkingLotId,
+					tenantId: context.tenant.id,
+				}),
+			);
+		},
+		{
+			query: t.Object({
+				customerPhone: t.String({ minLength: 3 }),
+				parkingLotId: t.String(),
 			}),
 		},
 	)
@@ -239,23 +474,30 @@ export const operatorOperationsController = new Elysia({
 				return failure("That lot is not available for this operator.");
 			}
 
-			return success(
-				await createParkingEntry({
-					customerName: body.customerName,
-					customerPhone: body.customerPhone,
-					displayPlateNumber: body.displayPlateNumber,
-					parkingLotId: body.parkingLotId,
-					tenantId: context.tenant.id,
-					userId: user.id,
-					vehicleType: body.vehicleType,
-				}),
-			);
+			const entryResult = await createParkingEntry({
+				customerName: body.customerName,
+				customerPhone: body.customerPhone,
+				displayPlateNumber: body.displayPlateNumber,
+				parkingGateId: body.parkingGateId,
+				parkingLotId: body.parkingLotId,
+				tenantId: context.tenant.id,
+				userId: user.id,
+				vehicleType: body.vehicleType,
+			});
+
+			if ("invalidGate" in entryResult && entryResult.invalidGate) {
+				set.status = 400;
+				return failure("Pick a valid gate for this parking lot.");
+			}
+
+			return success(entryResult);
 		},
 		{
 			body: t.Object({
 				customerName: t.String({ default: "" }),
 				customerPhone: t.String({ minLength: 5 }),
 				displayPlateNumber: t.String({ minLength: 1 }),
+				parkingGateId: t.Optional(t.String()),
 				parkingLotId: t.String(),
 				vehicleType: t.Optional(t.String()),
 			}),
@@ -337,8 +579,25 @@ export const operatorOperationsController = new Elysia({
 				return failure("That lot is not available for this operator.");
 			}
 
+			const currencyRaw = body.currencyCode?.trim().toUpperCase();
+			const countryRaw = body.countryCode?.trim().toUpperCase();
+
+			if (currencyRaw && !/^[A-Z]{3}$/.test(currencyRaw)) {
+				set.status = 400;
+				return failure(
+					"Currency must be a valid ISO 4217 code (e.g. USD, INR).",
+				);
+			}
+
+			if (countryRaw && !/^[A-Z]{2}$/.test(countryRaw)) {
+				set.status = 400;
+				return failure("Country must be a valid ISO 3166-1 alpha-2 code.");
+			}
+
 			await setParkingLotBaseRate({
 				baseRate: body.baseRate,
+				countryCode: countryRaw || undefined,
+				currencyCode: currencyRaw || undefined,
 				parkingLotId: body.parkingLotId,
 				tenantId: context.tenant.id,
 				userId: user.id,
@@ -349,6 +608,8 @@ export const operatorOperationsController = new Elysia({
 		{
 			body: t.Object({
 				baseRate: t.Numeric({ minimum: 0 }),
+				countryCode: t.Optional(t.String()),
+				currencyCode: t.Optional(t.String()),
 				parkingLotId: t.String(),
 			}),
 		},

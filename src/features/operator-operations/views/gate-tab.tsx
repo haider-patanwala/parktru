@@ -12,11 +12,20 @@ import { useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import {
+	Select,
+	SelectContent,
+	SelectGroup,
+	SelectItem,
+	SelectTrigger,
+	SelectValue,
+} from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import {
 	formatCurrency,
 	formatDateTime,
 	formatDuration,
+	moneyFormatFromLot,
 	normalizePlateNumber,
 	toISOString,
 	unwrapApiResult,
@@ -51,6 +60,11 @@ export function GateTab({
 	const queryClient = useQueryClient();
 	const activeLot =
 		operatorContext.allowedLots.find((l) => l.id === selectedLotId) ?? null;
+	const lotMoneyFormat = moneyFormatFromLot(activeLot);
+	const gates = operatorContext.gatesForSelectedLot ?? [];
+	const selectedGateId = operatorContext.selectedParkingGateId ?? null;
+	const activeGate =
+		gates.find((g) => g.id === selectedGateId) ?? gates[0] ?? null;
 
 	const [mode, setMode] = useState<GateMode>("search");
 	const [plateNumber, setPlateNumber] = useState("");
@@ -66,6 +80,22 @@ export function GateTab({
 	const [overrideAmount, setOverrideAmount] = useState("");
 	const activeSession = lookupResult?.activeSession ?? null;
 	const currentBaseRate = activeLot?.baseRate ?? 0;
+
+	const selectGateMutation = useMutation({
+		mutationFn: async (parkingGateId: string) =>
+			unwrapApiResult<OperatorContext>(
+				await eden.operator["select-gate"].post({ parkingGateId }),
+			),
+		onError: (error) => {
+			toast.danger(
+				error instanceof Error ? error.message : "Could not switch gate.",
+				{ timeout: 2000 },
+			);
+		},
+		onSuccess: async () => {
+			await queryClient.invalidateQueries({ queryKey: ["operator-context"] });
+		},
+	});
 
 	const resetForm = () => {
 		setPlateNumber("");
@@ -123,6 +153,7 @@ export function GateTab({
 					customerName,
 					customerPhone,
 					displayPlateNumber: plateNumber,
+					parkingGateId: selectedGateId ?? undefined,
 					parkingLotId: selectedLotId ?? "",
 					vehicleType,
 				}),
@@ -222,6 +253,8 @@ export function GateTab({
 			onReceiptReady(
 				{
 					amount: closed.amount,
+					countryCode: activeLot?.countryCode ?? "IN",
+					currencyCode: activeLot?.currencyCode ?? "INR",
 					customerName: closed.customerName,
 					customerPhone: closed.customerPhone,
 					entryAt: closed.entryAt,
@@ -264,15 +297,56 @@ export function GateTab({
 			/>
 
 			{/* Header */}
-			<div className="flex items-center justify-between">
-				<div>
+			<div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+				<div className="min-w-0 flex-1">
 					<p className="font-medium text-muted-foreground text-xs uppercase tracking-wider">
 						{activeLot.name}
 					</p>
 					<h1 className="mt-1 font-bold text-2xl tracking-tight">Gate</h1>
+					{gates.length > 1 ? (
+						<div className="mt-3 max-w-md">
+							<p className="mb-1.5 font-medium text-muted-foreground text-xs uppercase tracking-wider">
+								Gate lane
+							</p>
+							<Select
+								disabled={selectGateMutation.isPending}
+								onValueChange={(value) => {
+									if (!value) return;
+									selectGateMutation.mutate(value);
+								}}
+								value={selectedGateId ?? undefined}
+							>
+								<SelectTrigger
+									className="h-11 w-full rounded-xl bg-secondary px-3"
+									size="default"
+								>
+									<SelectValue placeholder="Select gate">
+										{activeGate?.name}
+									</SelectValue>
+								</SelectTrigger>
+								<SelectContent>
+									<SelectGroup>
+										{gates.map((gate) => (
+											<SelectItem
+												key={gate.id}
+												label={gate.name}
+												value={gate.id}
+											>
+												{gate.name}
+											</SelectItem>
+										))}
+									</SelectGroup>
+								</SelectContent>
+							</Select>
+						</div>
+					) : activeGate ? (
+						<p className="mt-2 text-muted-foreground text-sm">
+							Lane: <span className="text-foreground">{activeGate.name}</span>
+						</p>
+					) : null}
 				</div>
-				<Badge className="rounded-lg" variant="outline">
-					{formatCurrency(currentBaseRate)} / entry
+				<Badge className="shrink-0 self-start rounded-lg" variant="outline">
+					{formatCurrency(currentBaseRate, lotMoneyFormat)} / entry
 				</Badge>
 			</div>
 
@@ -330,8 +404,12 @@ export function GateTab({
 						{activeSession.displayPlateNumber}
 					</p>
 					<p className="mt-1 text-muted-foreground text-sm">
-						Entered {formatDateTime(activeSession.entryAt)} at{" "}
-						{activeSession.parkingLotName}
+						Entered{" "}
+						{formatDateTime(activeSession.entryAt, lotMoneyFormat.countryCode)}{" "}
+						at {activeSession.parkingLotName}
+						{activeSession.parkingGateName
+							? ` · ${activeSession.parkingGateName}`
+							: ""}
 					</p>
 
 					<div className="mt-4">
@@ -430,7 +508,10 @@ export function GateTab({
 								Entered
 							</p>
 							<p className="mt-1 font-medium text-xs">
-								{formatDateTime(activeSession.entryAt)}
+								{formatDateTime(
+									activeSession.entryAt,
+									lotMoneyFormat.countryCode,
+								)}
 							</p>
 						</div>
 						<div className="rounded-xl bg-secondary p-3">
@@ -446,7 +527,7 @@ export function GateTab({
 								Base rate
 							</p>
 							<p className="mt-1 font-medium text-xs">
-								{formatCurrency(activeSession.baseRateSnapshot)}
+								{formatCurrency(activeSession.baseRateSnapshot, lotMoneyFormat)}
 							</p>
 						</div>
 					</div>
@@ -592,6 +673,7 @@ export function GateTab({
 							disabled={
 								createEntryMutation.isPending ||
 								!selectedLotId ||
+								!selectedGateId ||
 								!plateNumber.trim() ||
 								!customerPhone.trim()
 							}

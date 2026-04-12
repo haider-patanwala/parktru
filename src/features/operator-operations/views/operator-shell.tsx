@@ -3,7 +3,7 @@
 import { type ReactNode, useEffect, useState } from "react";
 import { cn } from "@/lib/utils";
 
-export type TabId = "home" | "gate" | "sessions" | "settings";
+export type TabId = "home" | "gate" | "sessions" | "reports" | "settings";
 
 interface OperatorShellProps {
 	activeTab: TabId;
@@ -60,6 +60,20 @@ function TabIcon({ tab, active }: { tab: TabId; active: boolean }) {
 					<path d="M4 6h16M4 12h16M4 18h10" />
 				</svg>
 			);
+		case "reports":
+			return (
+				<svg
+					className={cn("size-6", color)}
+					fill="none"
+					stroke="currentColor"
+					strokeLinecap="round"
+					strokeLinejoin="round"
+					strokeWidth={active ? 2.2 : 1.8}
+					viewBox="0 0 24 24"
+				>
+					<path d="M4 19V5M12 19V9M20 19v-6" />
+				</svg>
+			);
 		case "settings":
 			return (
 				<svg
@@ -82,10 +96,11 @@ const TAB_LABELS: Record<TabId, string> = {
 	home: "Home",
 	gate: "Gate",
 	sessions: "Sessions",
+	reports: "Reports",
 	settings: "Settings",
 };
 
-const TAB_ORDER: TabId[] = ["home", "gate", "sessions", "settings"];
+const TAB_ORDER: TabId[] = ["home", "gate", "sessions", "reports", "settings"];
 
 export function OperatorShell({
 	activeTab,
@@ -121,7 +136,7 @@ export function OperatorShell({
 
 			{/* Bottom tab bar */}
 			<nav className="safe-bottom fixed inset-x-0 bottom-0 z-40 border-border border-t bg-background/80 backdrop-blur-xl">
-				<div className="mx-auto flex max-w-lg">
+				<div className="mx-auto flex max-w-xl">
 					{TAB_ORDER.map((tab) => {
 						const isActive = activeTab === tab;
 						return (
@@ -142,7 +157,7 @@ export function OperatorShell({
 								<TabIcon active={isActive} tab={tab} />
 								<span
 									className={cn(
-										"font-medium text-[0.65rem]",
+										"max-w-[4.25rem] truncate text-center font-medium text-[0.6rem] leading-tight sm:max-w-none sm:text-[0.65rem]",
 										isActive ? "text-primary" : "text-muted-foreground",
 									)}
 								>

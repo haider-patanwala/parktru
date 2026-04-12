@@ -1,10 +1,12 @@
 import { Types } from "mongoose";
 import {
+	buildParkingGateCode,
 	buildParkingLotCode,
 	buildSharePath,
 	normalizePlateNumber,
 } from "@/features/operator-operations/lib/operator-operations.helpers";
 import type {
+	LotReport,
 	OperatorContext,
 	PlateLookupResult,
 	ReceiptPreview,
@@ -13,6 +15,10 @@ import type {
 } from "@/features/operator-operations/models/operator-operations.types";
 import connectToDatabase from "@/server/mongodb";
 import { OperatorProfileModel } from "./operator-profile.schema";
+import {
+	type ParkingGateDocument,
+	ParkingGateModel,
+} from "./parking-gate.schema";
 import { type ParkingLotDocument, ParkingLotModel } from "./parking-lot.schema";
 import { ParkingLotRateModel } from "./parking-lot-rate.schema";
 import { ParkingSessionModel } from "./parking-session.schema";
@@ -49,7 +55,10 @@ async function ensureConnected() {
 	await connectToDatabase();
 }
 
-async function getLotRateMap(tenantId: string, parkingLotIds: string[]) {
+const DEFAULT_CURRENCY_CODE = "INR";
+const DEFAULT_COUNTRY_CODE = "IN";
+
+async function getLotRateDetailsMap(tenantId: string, parkingLotIds: string[]) {
 	const rates = await ParkingLotRateModel.find({
 		parkingLotId: { $in: parkingLotIds },
 		tenantId: toObjectId(tenantId),
@@ -58,7 +67,14 @@ async function getLotRateMap(tenantId: string, parkingLotIds: string[]) {
 		.exec();
 
 	return new Map(
-		rates.map((rate) => [toIdString(rate.parkingLotId), rate.baseRate ?? 0]),
+		rates.map((rate) => [
+			toIdString(rate.parkingLotId),
+			{
+				baseRate: rate.baseRate ?? 0,
+				countryCode: rate.countryCode ?? DEFAULT_COUNTRY_CODE,
+				currencyCode: rate.currencyCode ?? DEFAULT_CURRENCY_CODE,
+			},
+		]),
 	);
 }
 
@@ -72,6 +88,87 @@ async function getLotNameMap(tenantId: string) {
 	return new Map(lots.map((lot) => [toIdString(lot._id), lot.name]));
 }
 
+async function getGateNameMap(tenantId: string) {
+	const gates = await ParkingGateModel.find({
+		tenantId: toObjectId(tenantId),
+	})
+		.lean()
+		.exec();
+
+	return new Map(gates.map((gate) => [toIdString(gate._id), gate.name]));
+}
+
+async function ensureGatesForLot(
+	parkingLotId: string,
+	tenantId: string,
+	userId: string,
+): Promise<Array<ParkingGateDocument & { _id: Types.ObjectId }>> {
+	const lotOid = toObjectId(parkingLotId);
+	const tenantOid = toObjectId(tenantId);
+	let gates = await ParkingGateModel.find({
+		parkingLotId: lotOid,
+		tenantId: tenantOid,
+	})
+		.sort({ name: 1 })
+		.lean()
+		.exec();
+
+	if (gates.length > 0) {
+		return gates as Array<ParkingGateDocument & { _id: Types.ObjectId }>;
+	}
+
+	await ParkingGateModel.create({
+		code: buildParkingGateCode("GATE"),
+		createdBy: userId,
+		name: "Main gate",
+		parkingLotId: lotOid,
+		status: "active",
+		tenantId: tenantOid,
+		updatedBy: userId,
+	});
+
+	gates = await ParkingGateModel.find({
+		parkingLotId: lotOid,
+		tenantId: tenantOid,
+	})
+		.sort({ name: 1 })
+		.lean()
+		.exec();
+
+	return gates as Array<ParkingGateDocument & { _id: Types.ObjectId }>;
+}
+
+async function resolveParkingGateIdForEntry(input: {
+	parkingGateId?: string | null;
+	parkingLotId: string;
+	tenantId: string;
+	userId: string;
+}): Promise<
+	{ gateOid: Types.ObjectId; kind: "ok" } | { kind: "invalid_gate" }
+> {
+	const gates = await ensureGatesForLot(
+		input.parkingLotId,
+		input.tenantId,
+		input.userId,
+	);
+	const primary = gates[0]?._id;
+	if (!primary) {
+		return { kind: "invalid_gate" };
+	}
+
+	const requested = input.parkingGateId?.trim();
+	if (!requested) {
+		return { gateOid: primary, kind: "ok" };
+	}
+
+	const found = gates.find((g) => toIdString(g._id) === requested);
+	if (!found) {
+		return { kind: "invalid_gate" };
+	}
+
+	return { gateOid: found._id, kind: "ok" };
+}
+
 function mapSessionSnapshot(
 	session: {
 		_id: Types.ObjectId;
@@ -83,12 +180,17 @@ function mapSessionSnapshot(
 		exitAt?: Date | null;
 		finalAmount?: number | null;
 		overrideAmount?: number | null;
+		parkingGateId?: Types.ObjectId | string | null;
 		parkingLotId: Types.ObjectId | string;
 		status: "active" | "closed";
 	},
 	lotNameMap: Map<string, string>,
+	gateNameMap: Map<string, string>,
 ): SessionSnapshot {
 	const parkingLotId = toIdString(session.parkingLotId);
+	const parkingGateId = session.parkingGateId
+		? toIdString(session.parkingGateId)
+		: null;
 
 	return {
 		baseRateSnapshot: session.baseRateSnapshot,
@@ -100,6 +202,10 @@ function mapSessionSnapshot(
 		finalAmount: session.finalAmount ?? null,
 		id: toIdString(session._id),
 		overrideAmount: session.overrideAmount ?? null,
+		parkingGateId,
+		parkingGateName: parkingGateId
+			? (gateNameMap.get(parkingGateId) ?? null)
+			: null,
 		parkingLotId,
 		parkingLotName: lotNameMap.get(parkingLotId) ?? "Unknown lot",
 		status: session.status,
@@ -107,6 +213,8 @@ function mapSessionSnapshot(
 }
 
 function buildReceiptPreview(input: {
+	countryCode: string;
+	currencyCode: string;
 	operatorName: string;
 	parkingLotName: string;
 	receiptId: string;
@@ -124,6 +232,8 @@ function buildReceiptPreview(input: {
 }): ReceiptPreview {
 	return {
 		amount: input.session.finalAmount,
+		countryCode: input.countryCode,
+		currencyCode: input.currencyCode,
 		customerName: input.session.customerName,
 		customerPhone: input.session.customerPhone,
 		entryAt: input.session.entryAt.toISOString(),
@@ -153,6 +263,8 @@ export async function getOperatorContextForUser(
 	if (!profile) {
 		return {
 			allowedLots: [],
+			gatesForSelectedLot: [],
+			selectedParkingGateId: null,
 			selectedParkingLotId: null,
 			tenant: null,
 			user: {
@@ -177,7 +289,7 @@ export async function getOperatorContextForUser(
 			.exec(),
 	]);
 
-	const rateMap = await getLotRateMap(
+	const rateMap = await getLotRateDetailsMap(
 		tenantId,
 		lots.map((lot: ParkingLotDocument & { _id: Types.ObjectId }) =>
 			toIdString(lot._id),
@@ -194,16 +306,69 @@ export async function getOperatorContextForUser(
 				? toIdString(lots[0]._id)
 				: null;
 
+	let gatesForSelectedLot: OperatorContext["gatesForSelectedLot"] = [];
+	let selectedParkingGateId: string | null = null;
+
+	if (selectedParkingLotId) {
+		const gateDocs = await ensureGatesForLot(
+			selectedParkingLotId,
+			tenantId,
+			user.id,
+		);
+		gatesForSelectedLot = gateDocs.map((g) => ({
+			code: g.code,
+			id: toIdString(g._id),
+			name: g.name,
+		}));
+
+		const storedGateId = profile.selectedParkingGateId
+			? toIdString(profile.selectedParkingGateId)
+			: null;
+		const gateValid =
+			storedGateId && gateDocs.some((g) => toIdString(g._id) === storedGateId);
+
+		selectedParkingGateId = gateValid
+			? storedGateId
+			: gateDocs[0]
+				? toIdString(gateDocs[0]._id)
+				: null;
+
+		if (selectedParkingGateId !== storedGateId) {
+			await OperatorProfileModel.updateOne(
+				{ userId: user.id },
+				{
+					$set: {
+						selectedParkingGateId: selectedParkingGateId
+							? toObjectId(selectedParkingGateId)
+							: null,
+					},
+				},
+			).exec();
+		}
+	} else if (profile.selectedParkingGateId) {
+		await OperatorProfileModel.updateOne(
+			{ userId: user.id },
+			{ $set: { selectedParkingGateId: null } },
+		).exec();
+	}
+
 	return {
 		allowedLots: lots.map(
-			(lot: ParkingLotDocument & { _id: Types.ObjectId }) => ({
-				baseRate: rateMap.get(toIdString(lot._id)) ?? 0,
-				code: lot.code,
-				id: toIdString(lot._id),
-				name: lot.name,
-				status: lot.status,
-			}),
+			(lot: ParkingLotDocument & { _id: Types.ObjectId }) => {
+				const details = rateMap.get(toIdString(lot._id));
+				return {
+					baseRate: details?.baseRate ?? 0,
+					code: lot.code,
+					countryCode: details?.countryCode ?? DEFAULT_COUNTRY_CODE,
+					currencyCode: details?.currencyCode ?? DEFAULT_CURRENCY_CODE,
+					id: toIdString(lot._id),
+					name: lot.name,
+					status: lot.status,
+				};
+			},
 		),
+		gatesForSelectedLot,
+		selectedParkingGateId,
 		selectedParkingLotId,
 		tenant: tenant
 			? {
@@ -258,9 +423,20 @@ export async function bootstrapOperatorWorkspace(input: {
 		updatedBy: input.user.id,
 	});
 
+	const gate = await ParkingGateModel.create({
+		code: buildParkingGateCode("GATE"),
+		createdBy: input.user.id,
+		name: "Main gate",
+		parkingLotId: lot._id,
+		status: "active",
+		tenantId: tenant._id,
+		updatedBy: input.user.id,
+	});
+
 	await OperatorProfileModel.create({
 		allowedParkingLotIds: [lot._id],
 		role: "lot-operator",
+		selectedParkingGateId: gate._id,
 		selectedParkingLotId: lot._id,
 		tenantId: tenant._id,
 		userId: input.user.id,
@@ -292,6 +468,12 @@ export async function setSelectedParkingLotForUser(input: {
 	}
 
 	profile.selectedParkingLotId = toObjectId(input.parkingLotId);
+	const gateDocs = await ensureGatesForLot(
+		input.parkingLotId,
+		toIdString(profile.tenantId),
+		input.userId,
+	);
+	profile.selectedParkingGateId = gateDocs[0]?._id ?? null;
 	await profile.save();
 
 	return profile;
@@ -303,7 +485,10 @@ export async function getSessionsForLot(input: {
 }): Promise<SessionLists> {
 	await ensureConnected();
 
-	const lotNameMap = await getLotNameMap(input.tenantId);
+	const [lotNameMap, gateNameMap] = await Promise.all([
+		getLotNameMap(input.tenantId),
+		getGateNameMap(input.tenantId),
+	]);
 	const [activeSessions, recentSessions] = await Promise.all([
 		ParkingSessionModel.find({
 			parkingLotId: toObjectId(input.parkingLotId),
@@ -327,12 +512,250 @@ export async function getSessionsForLot(input: {
 
 	return {
 		activeSessions: activeSessions.map((session) =>
-			mapSessionSnapshot(session, lotNameMap),
+			mapSessionSnapshot(session, lotNameMap, gateNameMap),
 		),
 		recentSessions: recentSessions.map((session) =>
-			mapSessionSnapshot(session, lotNameMap),
+			mapSessionSnapshot(session, lotNameMap, gateNameMap),
 		),
 	};
+}
+
+export async function getLotReport(input: {
+	parkingLotId: string;
+	tenantId: string;
+}): Promise<LotReport> {
+	await ensureConnected();
+
+	const lotOid = toObjectId(input.parkingLotId);
+	const tenantOid = toObjectId(input.tenantId);
+
+	const matchStage = {
+		$match: {
+			parkingLotId: lotOid,
+			tenantId: tenantOid,
+		},
+	};
+
+	type FacetResult = {
+		cars: Array<{
+			_id: string;
+			displayPlateNumber?: string;
+			lastVisitAt?: Date | null;
+			totalRevenue: number;
+			vehicleType?: string;
+			visitCount: number;
+		}>;
+		owners: Array<{
+			_id: string;
+			customerName?: string;
+			lastVisitAt?: Date | null;
+			totalRevenue: number;
+			visitCount: number;
+		}>;
+		totals: Array<{
+			closedSessionCount: number;
+			totalRevenue: number;
+			uniqueCarCount: number;
+			uniqueOwnerCount: number;
+		}>;
+	};
+
+	const [raw] = await ParkingSessionModel.aggregate<FacetResult>([
+		matchStage,
+		{
+			$facet: {
+				totals: [
+					{
+						$group: {
+							_id: null,
+							carIds: { $addToSet: "$normalizedPlateNumber" },
+							closedSessionCount: {
+								$sum: { $cond: [{ $eq: ["$status", "closed"] }, 1, 0] },
+							},
+							ownerIds: { $addToSet: "$customerPhone" },
+							totalRevenue: {
+								$sum: {
+									$cond: [
+										{
+											$and: [
+												{ $eq: ["$status", "closed"] },
+												{ $ne: ["$finalAmount", null] },
+											],
+										},
+										"$finalAmount",
+										0,
+									],
+								},
+							},
+						},
+					},
+					{
+						$project: {
+							_id: 0,
+							closedSessionCount: 1,
+							totalRevenue: 1,
+							uniqueCarCount: { $size: "$carIds" },
+							uniqueOwnerCount: { $size: "$ownerIds" },
+						},
+					},
+				],
+				cars: [
+					{
+						$addFields: {
+							sortAt: { $ifNull: ["$exitAt", "$entryAt"] },
+						},
+					},
+					{ $sort: { sortAt: -1 } },
+					{
+						$group: {
+							_id: "$normalizedPlateNumber",
+							displayPlateNumber: { $first: "$displayPlateNumber" },
+							lastVisitAt: { $first: "$sortAt" },
+							totalRevenue: {
+								$sum: {
+									$cond: [
+										{
+											$and: [
+												{ $eq: ["$status", "closed"] },
+												{ $ne: ["$finalAmount", null] },
+											],
+										},
+										"$finalAmount",
+										0,
+									],
+								},
+							},
+							vehicleType: { $first: "$vehicleType" },
+							visitCount: { $sum: 1 },
+						},
+					},
+					{ $sort: { totalRevenue: -1, visitCount: -1 } },
+					{ $limit: 200 },
+				],
+				owners: [
+					{
+						$addFields: {
+							sortAt: { $ifNull: ["$exitAt", "$entryAt"] },
+						},
+					},
+					{ $sort: { sortAt: -1 } },
+					{
+						$group: {
+							_id: "$customerPhone",
+							customerName: { $first: "$customerName" },
+							lastVisitAt: { $first: "$sortAt" },
+							totalRevenue: {
+								$sum: {
+									$cond: [
+										{
+											$and: [
+												{ $eq: ["$status", "closed"] },
+												{ $ne: ["$finalAmount", null] },
+											],
+										},
+										"$finalAmount",
+										0,
+									],
+								},
+							},
+							visitCount: { $sum: 1 },
+						},
+					},
+					{ $sort: { totalRevenue: -1, visitCount: -1 } },
+					{ $limit: 200 },
+				],
+			},
+		},
+	]).exec();
+
+	const totals = raw?.totals[0] ?? {
+		closedSessionCount: 0,
+		totalRevenue: 0,
+		uniqueCarCount: 0,
+		uniqueOwnerCount: 0,
+	};
+
+	const cars = (raw?.cars ?? []).map((row) => ({
+		displayPlateNumber: row.displayPlateNumber ?? row._id,
+		lastVisitAt: row.lastVisitAt
+			? new Date(row.lastVisitAt).toISOString()
+			: null,
+		normalizedPlateNumber: row._id,
+		totalRevenue: row.totalRevenue,
+		vehicleType: row.vehicleType ?? "",
+		visitCount: row.visitCount,
+	}));
+
+	const owners = (raw?.owners ?? []).map((row) => ({
+		customerName: row.customerName ?? "",
+		customerPhone: row._id,
+		lastVisitAt: row.lastVisitAt
+			? new Date(row.lastVisitAt).toISOString()
+			: null,
+		totalRevenue: row.totalRevenue,
+		visitCount: row.visitCount,
+	}));
+
+	return {
+		cars,
+		closedSessionCount: totals.closedSessionCount,
+		owners,
+		totalRevenue: totals.totalRevenue,
+		uniqueCarCount: totals.uniqueCarCount,
+		uniqueOwnerCount: totals.uniqueOwnerCount,
+	};
+}
+
+export async function getReportSessionsForCar(input: {
+	normalizedPlateNumber: string;
+	parkingLotId: string;
+	tenantId: string;
+}): Promise<SessionSnapshot[]> {
+	await ensureConnected();
+
+	const [lotNameMap, gateNameMap] = await Promise.all([
+		getLotNameMap(input.tenantId),
+		getGateNameMap(input.tenantId),
+	]);
+	const sessions = await ParkingSessionModel.find({
+		normalizedPlateNumber: input.normalizedPlateNumber,
+		parkingLotId: toObjectId(input.parkingLotId),
+		tenantId: toObjectId(input.tenantId),
+	})
+		.sort({ entryAt: -1 })
+		.limit(100)
+		.lean()
+		.exec();
+
+	return sessions.map((session) =>
+		mapSessionSnapshot(session, lotNameMap, gateNameMap),
+	);
+}
+
+export async function getReportSessionsForOwner(input: {
+	customerPhone: string;
+	parkingLotId: string;
+	tenantId: string;
+}): Promise<SessionSnapshot[]> {
+	await ensureConnected();
+
+	const [lotNameMap, gateNameMap] = await Promise.all([
+		getLotNameMap(input.tenantId),
+		getGateNameMap(input.tenantId),
+	]);
+	const sessions = await ParkingSessionModel.find({
+		customerPhone: input.customerPhone.trim(),
+		parkingLotId: toObjectId(input.parkingLotId),
+		tenantId: toObjectId(input.tenantId),
+	})
+		.sort({ entryAt: -1 })
+		.limit(100)
+		.lean()
+		.exec();
+
+	return sessions.map((session) =>
+		mapSessionSnapshot(session, lotNameMap, gateNameMap),
+	);
 }
 
 export async function lookupPlateForTenant(input: {
@@ -342,7 +765,10 @@ export async function lookupPlateForTenant(input: {
 	await ensureConnected();
 
 	const normalizedPlateNumber = normalizePlateNumber(input.plateNumber);
-	const lotNameMap = await getLotNameMap(input.tenantId);
+	const [lotNameMap, gateNameMap] = await Promise.all([
+		getLotNameMap(input.tenantId),
+		getGateNameMap(input.tenantId),
+	]);
 	const [activeSession, recentMatches] = await Promise.all([
 		ParkingSessionModel.findOne({
 			normalizedPlateNumber,
@@ -366,7 +792,7 @@ export async function lookupPlateForTenant(input: {
 
 	return {
 		activeSession: activeSession
-			? mapSessionSnapshot(activeSession, lotNameMap)
+			? mapSessionSnapshot(activeSession, lotNameMap, gateNameMap)
 			: null,
 		customerDefaults: mostRecentMatch
 			? {
@@ -376,7 +802,7 @@ export async function lookupPlateForTenant(input: {
 			: null,
 		normalizedPlateNumber,
 		recentMatches: recentMatches.map((session) =>
-			mapSessionSnapshot(session, lotNameMap),
+			mapSessionSnapshot(session, lotNameMap, gateNameMap),
 		),
 	};
 }
@@ -385,12 +811,32 @@ export async function createParkingEntry(input: {
 	customerName: string;
 	customerPhone: string;
 	displayPlateNumber: string;
+	parkingGateId?: string | null;
 	parkingLotId: string;
 	tenantId: string;
 	userId: string;
 	vehicleType?: string;
-}) {
+}): Promise<
+	| { created: false; duplicateSession: null; invalidGate: true }
+	| { created: false; duplicateSession: SessionSnapshot }
+	| { created: true; duplicateSession: null }
+> {
 	await ensureConnected();
+
+	const gateResolution = await resolveParkingGateIdForEntry({
+		parkingGateId: input.parkingGateId,
+		parkingLotId: input.parkingLotId,
+		tenantId: input.tenantId,
+		userId: input.userId,
+	});
+
+	if (gateResolution.kind === "invalid_gate") {
+		return {
+			created: false,
+			duplicateSession: null,
+			invalidGate: true,
+		};
+	}
 
 	const normalizedPlateNumber = normalizePlateNumber(input.displayPlateNumber);
 	const duplicate = await ParkingSessionModel.findOne({
@@ -402,11 +848,14 @@ export async function createParkingEntry(input: {
 		.exec();
 
 	if (duplicate) {
-		const lotNameMap = await getLotNameMap(input.tenantId);
+		const [lotNameMap, gateNameMap] = await Promise.all([
+			getLotNameMap(input.tenantId),
+			getGateNameMap(input.tenantId),
+		]);
 
 		return {
 			created: false as const,
-			duplicateSession: mapSessionSnapshot(duplicate, lotNameMap),
+			duplicateSession: mapSessionSnapshot(duplicate, lotNameMap, gateNameMap),
 		};
 	}
 
@@ -425,6 +874,7 @@ export async function createParkingEntry(input: {
 		displayPlateNumber: input.displayPlateNumber.trim(),
 		entryAt: new Date(),
 		normalizedPlateNumber,
+		parkingGateId: gateResolution.gateOid,
 		parkingLotId: toObjectId(input.parkingLotId),
 		tenantId: toObjectId(input.tenantId),
 		updatedBy: input.userId,
@@ -463,11 +913,25 @@ export async function updateParkingEntryTime(input: {
 
 export async function setParkingLotBaseRate(input: {
 	baseRate: number;
+	countryCode?: string;
+	currencyCode?: string;
 	parkingLotId: string;
 	tenantId: string;
 	userId: string;
 }) {
 	await ensureConnected();
+
+	const existing = await ParkingLotRateModel.findOne({
+		parkingLotId: toObjectId(input.parkingLotId),
+		tenantId: toObjectId(input.tenantId),
+	})
+		.lean()
+		.exec();
+
+	const currencyCode =
+		input.currencyCode ?? existing?.currencyCode ?? DEFAULT_CURRENCY_CODE;
+	const countryCode =
+		input.countryCode ?? existing?.countryCode ?? DEFAULT_COUNTRY_CODE;
 
 	await ParkingLotRateModel.findOneAndUpdate(
 		{
@@ -476,6 +940,8 @@ export async function setParkingLotBaseRate(input: {
 		},
 		{
 			baseRate: input.baseRate,
+			countryCode,
+			currencyCode,
 			parkingLotId: toObjectId(input.parkingLotId),
 			tenantId: toObjectId(input.tenantId),
 			updatedBy: input.userId,
@@ -487,6 +953,77 @@ export async function setParkingLotBaseRate(input: {
 	).exec();
 
 	return true;
+}
+
+export async function createParkingGateForLot(input: {
+	name: string;
+	parkingLotId: string;
+	tenantId: string;
+	userId: string;
+}) {
+	await ensureConnected();
+
+	const gate = await ParkingGateModel.create({
+		code: buildParkingGateCode(input.name),
+		createdBy: input.userId,
+		name: input.name.trim(),
+		parkingLotId: toObjectId(input.parkingLotId),
+		status: "active",
+		tenantId: toObjectId(input.tenantId),
+		updatedBy: input.userId,
+	});
+
+	return {
+		code: gate.code,
+		id: toIdString(gate._id),
+		name: gate.name,
+	};
+}
+
+export async function setSelectedParkingGateForUser(input: {
+	parkingGateId: string;
+	userId: string;
+}) {
+	await ensureConnected();
+
+	const profile = await OperatorProfileModel.findOne({
+		userId: input.userId,
+	}).exec();
+
+	if (!profile) {
+		return null;
+	}
+
+	const gate = await ParkingGateModel.findOne({
+		_id: toObjectId(input.parkingGateId),
+		tenantId: profile.tenantId,
+	})
+		.lean()
+		.exec();
+
+	if (!gate) {
+		return null;
+	}
+
+	const allowedLot = profile.allowedParkingLotIds.some(
+		(id: Types.ObjectId) => toIdString(id) === toIdString(gate.parkingLotId),
+	);
+
+	if (!allowedLot) {
+		return null;
+	}
+
+	if (
+		!profile.selectedParkingLotId ||
+		toIdString(profile.selectedParkingLotId) !== toIdString(gate.parkingLotId)
+	) {
+		return null;
+	}
+
+	profile.selectedParkingGateId = gate._id as Types.ObjectId;
+	await profile.save();
+
+	return profile;
 }
 
 export async function closeParkingExit(input: {
@@ -576,12 +1113,20 @@ export async function generateReceiptLink(input: {
 		).exec();
 	}
 
-	const [tenant, lot] = await Promise.all([
+	const [tenant, lot, rate] = await Promise.all([
 		TenantWorkspaceModel.findById(session.tenantId).lean().exec(),
 		ParkingLotModel.findById(session.parkingLotId).lean().exec(),
+		ParkingLotRateModel.findOne({
+			parkingLotId: session.parkingLotId,
+			tenantId: session.tenantId,
+		})
+			.lean()
+			.exec(),
 	]);
 
 	return buildReceiptPreview({
+		countryCode: rate?.countryCode ?? DEFAULT_COUNTRY_CODE,
+		currencyCode: rate?.currencyCode ?? DEFAULT_CURRENCY_CODE,
 		operatorName: input.operatorName,
 		parkingLotName: lot?.name ?? "Unknown lot",
 		receiptId: toIdString(receipt._id),
@@ -624,12 +1169,20 @@ export async function getSharedReceiptPreview(input: {
 		return null;
 	}
 
-	const [tenant, lot] = await Promise.all([
+	const [tenant, lot, rate] = await Promise.all([
 		TenantWorkspaceModel.findById(receipt.tenantId).lean().exec(),
 		ParkingLotModel.findById(receipt.parkingLotId).lean().exec(),
+		ParkingLotRateModel.findOne({
+			parkingLotId: receipt.parkingLotId,
+			tenantId: receipt.tenantId,
+		})
+			.lean()
+			.exec(),
 	]);
 
 	return buildReceiptPreview({
+		countryCode: rate?.countryCode ?? DEFAULT_COUNTRY_CODE,
+		currencyCode: rate?.currencyCode ?? DEFAULT_CURRENCY_CODE,
 		operatorName: "ParkTru Operator",
 		parkingLotName: lot?.name ?? "Unknown lot",
 		receiptId: toIdString(receipt._id),

@@ -49,99 +49,101 @@ export function ReceiptOverlay({
 	});
 
 	return (
-		<div className="safe-top safe-bottom fixed inset-0 z-50 flex flex-col bg-background/95 backdrop-blur-sm">
+		<div className='safe-top safe-bottom fixed inset-0 z-50 flex flex-col bg-background/95 backdrop-blur-sm'>
 			{/* Top bar */}
-			<div className="flex items-center justify-between px-5 py-4">
-				<h2 className="font-bold text-lg">Receipt</h2>
+			<div className='flex items-center justify-between px-5 py-4'>
+				<h2 className='font-bold text-lg'>Receipt</h2>
 				<Button
-					className="rounded-xl text-muted-foreground"
+					className='rounded-xl text-muted-foreground'
 					onClick={onDismiss}
-					size="sm"
-					variant="ghost"
-				>
+					size='sm'
+					variant='ghost'>
 					Done
 				</Button>
 			</div>
 
 			{/* Receipt card */}
-			<div className="flex-1 overflow-y-auto px-5 pb-6">
-				<div className="mx-auto max-w-sm rounded-3xl bg-card p-6 ring-1 ring-border">
+			<div className='flex-1 overflow-y-auto px-5 pb-6'>
+				<div className='mx-auto max-w-sm rounded-3xl bg-card p-6 ring-1 ring-border'>
 					{/* Header */}
-					<div className="text-center">
-						<p className="font-medium text-muted-foreground text-xs uppercase tracking-wider">
+					<div className='text-center'>
+						<p className='font-medium text-muted-foreground text-xs uppercase tracking-wider'>
 							{preview.tenantName}
 						</p>
-						<p className="mt-1 text-muted-foreground text-xs">
+						<p className='mt-1 text-muted-foreground text-xs'>
 							{preview.parkingLotName}
 						</p>
 					</div>
 
-					<Separator className="my-5" />
+					<Separator className='my-5' />
 
 					{/* Plate & amount */}
-					<div className="text-center">
-						<p className="font-bold font-mono text-2xl tracking-wider">
+					<div className='text-center'>
+						<p className='font-bold font-mono text-2xl tracking-wider'>
 							{preview.plateNumber}
 						</p>
-						<p className="mt-3 font-bold text-4xl text-primary">
-							{formatCurrency(preview.amount)}
+						<p className='mt-3 font-bold text-4xl text-primary'>
+							{formatCurrency(preview.amount, {
+								countryCode: preview.countryCode,
+								currencyCode: preview.currencyCode,
+							})}
 						</p>
 					</div>
 
-					<Separator className="my-5" />
+					<Separator className='my-5' />
 
 					{/* Details */}
-					<div className="flex flex-col gap-3">
-						<div className="flex justify-between text-sm">
-							<span className="text-muted-foreground">Customer</span>
-							<span className="font-medium">
+					<div className='flex flex-col gap-3'>
+						<div className='flex justify-between text-sm'>
+							<span className='text-muted-foreground'>Customer</span>
+							<span className='font-medium'>
 								{preview.customerName || "Not recorded"}
 							</span>
 						</div>
-						<div className="flex justify-between text-sm">
-							<span className="text-muted-foreground">Phone</span>
-							<span className="font-medium">
+						<div className='flex justify-between text-sm'>
+							<span className='text-muted-foreground'>Phone</span>
+							<span className='font-medium'>
 								{preview.customerPhone || "Not recorded"}
 							</span>
 						</div>
-						<div className="flex justify-between text-sm">
-							<span className="text-muted-foreground">Entry</span>
-							<span className="font-medium">
-								{formatDateTime(preview.entryAt)}
+						<div className='flex justify-between text-sm'>
+							<span className='text-muted-foreground'>Entry</span>
+							<span className='font-medium'>
+								{formatDateTime(preview.entryAt, preview.countryCode)}
 							</span>
 						</div>
-						<div className="flex justify-between text-sm">
-							<span className="text-muted-foreground">Exit</span>
-							<span className="font-medium">
-								{formatDateTime(preview.exitAt)}
+						<div className='flex justify-between text-sm'>
+							<span className='text-muted-foreground'>Exit</span>
+							<span className='font-medium'>
+								{formatDateTime(preview.exitAt, preview.countryCode)}
 							</span>
 						</div>
-						<div className="flex justify-between text-sm">
-							<span className="text-muted-foreground">Duration</span>
-							<span className="font-medium">
+						<div className='flex justify-between text-sm'>
+							<span className='text-muted-foreground'>Duration</span>
+							<span className='font-medium'>
 								{formatDuration(preview.entryAt, preview.exitAt)}
 							</span>
 						</div>
-						<div className="flex justify-between text-sm">
-							<span className="text-muted-foreground">Operator</span>
-							<span className="font-medium">{preview.operatorName}</span>
+						<div className='flex justify-between text-sm'>
+							<span className='text-muted-foreground'>Operator</span>
+							<span className='font-medium'>{preview.operatorName}</span>
 						</div>
 						{preview.receiptNumber !== "Preview" && (
-							<div className="flex justify-between text-sm">
-								<span className="text-muted-foreground">Receipt #</span>
-								<span className="font-medium font-mono">
+							<div className='flex justify-between text-sm'>
+								<span className='text-muted-foreground'>Receipt #</span>
+								<span className='font-medium font-mono'>
 									{preview.receiptNumber}
 								</span>
 							</div>
 						)}
 					</div>
 
-					<Separator className="my-5" />
+					<Separator className='my-5' />
 
 					{/* Share link URL if available */}
 					{preview.sharePath && (
-						<div className="mb-4 rounded-xl bg-secondary px-3 py-2 text-center">
-							<p className="break-all font-mono text-muted-foreground text-xs">
+						<div className='mb-4 rounded-xl bg-secondary px-3 py-2 text-center'>
+							<p className='break-all font-mono text-muted-foreground text-xs'>
 								{typeof window !== "undefined" ? window.location.origin : ""}
 								{preview.sharePath}
 							</p>
@@ -149,23 +151,21 @@ export function ReceiptOverlay({
 					)}
 
 					{/* Actions */}
-					<div className="flex flex-col gap-2">
+					<div className='flex flex-col gap-2'>
 						<Button
-							className="h-13 rounded-xl font-semibold text-base"
+							className='h-13 rounded-xl font-semibold text-base'
 							disabled={shareReceiptMutation.isPending}
 							onClick={() => shareReceiptMutation.mutate()}
-							type="button"
-						>
+							type='button'>
 							{shareReceiptMutation.isPending
 								? "Generating link..."
 								: "Share receipt"}
 						</Button>
 						<Button
-							className="h-11 rounded-xl"
+							className='h-11 rounded-xl'
 							onClick={onDismiss}
-							type="button"
-							variant="ghost"
-						>
+							type='button'
+							variant='ghost'>
 							Skip
 						</Button>
 					</div>

@@ -1,6 +1,6 @@
 ---
 name: parktru-architecture
-description: Use when working on ParkTru app architecture, feature structure, Next.js App Router pages, ElysiaJS routes, Eden client usage, TanStack Query, Better Auth, MongoDB, or planned Zero offline-sync integration. This skill keeps changes aligned with the repo's feature-first MVC direction and prevents invented abstractions.
+description: Use when working on ParkTru app architecture, feature structure, Next.js App Router pages, ElysiaJS routes, Eden client usage, TanStack Query, Better Auth, MongoDB, or local-first persistence with idb-keyval and Eden-backed sync. This skill keeps changes aligned with the repo's feature-first MVC direction and prevents invented abstractions.
 ---
 
 # ParkTru Architecture
@@ -31,16 +31,17 @@ Inspect these files first:
 - Better Auth is already configured.
 - MongoDB is already connected through a shared helper.
 - Serwist handles offline document fallback.
+- `idb-keyval` is the planned client store for durable local-first data (see `AGENTS.md` and `docs/trd.md`).
 
 ## What Does Not Exist Yet
 
-Zero and `zero-sources` are planned architecture, not live dependencies in this repo right now.
+Explicit feature-level sync modules (outbox, retries, key layout) that wrap `idb-keyval` and call Eden—those are to be added per feature, not invented as placeholders.
 
 Rules:
 
-- Never fabricate Zero package names, imports, or APIs.
-- If a task truly needs Zero, add the real dependency first.
-- If Zero is not part of the task, do not add placeholder sync layers "for later".
+- Never fabricate `idb-keyval` APIs beyond the installed package.
+- Do not add `zero` / `@rocicorp/zero` unless the project explicitly adopts them later.
+- If a task needs local persistence, add thin wrappers under `src/features/<feature>/sync/` and real types—no fake sync layers.
 
 ## Default Placement
 
@@ -61,7 +62,7 @@ Use the folders like this:
 - `controllers/`: use-case orchestration, auth-aware flows, query/mutation wrappers, route handlers
 - `models/`: schemas, types, repositories, DB mapping
 - `views/`: React components and page-level UI composition
-- `sync/`: Zero/local-first sync code once Zero exists
+- `sync/`: `idb-keyval` stores, outbox, and Eden flush/reconciliation (no JSX)
 - `lib/`: feature-local constants and helpers
 
 ## Decision Rules
@@ -98,24 +99,23 @@ Use it for:
 - server-backed client caching
 - async mutations
 - cache invalidation
-- data that is not owned by a local-first sync engine
+- data that is not locally canonical in `idb-keyval`
 
 Do not spread query keys across random files. Keep them inside the owning feature.
 
-### When Zero is eventually added
+### When using `idb-keyval`
 
-Use Zero for:
+Use it for:
 
-- offline-first synced collections
-- optimistic local writes that later sync to the server
-- domain data that benefits from local-first reads
+- durable local-first reads/writes for operational entities
+- offline-tolerant flows that later reconcile via Eden
 
 Keep ownership clear:
 
-- Zero owns synced local-first entities.
-- TanStack Query owns non-sync server cache and one-off workflows.
+- `idb-keyval` holds the local canonical copy for entities you designate as local-first.
+- TanStack Query holds server-backed cache and one-off workflows that do not need that contract.
 
-Do not make both tools own the same data model without an explicit reason.
+Do not mirror the same entity in both without an explicit boundary documented in the feature.
 
 ## Reuse Workflow
 

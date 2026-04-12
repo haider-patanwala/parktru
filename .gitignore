@@ -51,3 +51,7 @@ public/sw*
 
 # brainstorming companion
 /.superpowers/
+
+
+# graphify
+graphify-out/

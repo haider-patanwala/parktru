@@ -12,7 +12,7 @@ The design should align with the repo direction already defined in `AGENTS.md`:
 - TanStack Query for server-backed caching and async workflows
 - MongoDB for durable storage
 - Better Auth for authentication
-- Zero local-first sync with MongoDB-backed server sync as the target offline architecture
+- `idb-keyval` on the client (IndexedDB) for durable local-first data, with explicit sync to MongoDB via Eden/Elysia as the target offline architecture
 
 ## Technical Goals
 
@@ -32,8 +32,8 @@ The design should align with the repo direction already defined in `AGENTS.md`:
 - React UI with feature-scoped views
 - Camera-based plate capture workflow
 - Geo-location access for geo-fence validation
-- Local-first data access through Zero once integrated
-- TanStack Query for non-Zero async data and cache flows
+- Local-first data access through `idb-keyval` stores plus feature sync modules
+- TanStack Query for server-backed async data and cache flows that are not locally canonical
 
 ### Server
 
@@ -42,12 +42,12 @@ The design should align with the repo direction already defined in `AGENTS.md`:
 - Feature controllers for business orchestration
 - MongoDB repositories for persistence
 - Audit/event logging pipeline
-- Zero sync endpoints and change-source integration for offline-first collections
+- Elysia endpoints for mutations and reads that reconcile server state with client outbox/sync queues (no separate change-stream client protocol required for v1)
 
 ### Data
 
 - MongoDB as primary server database
-- Zero local-first database on client for operational entities
+- `idb-keyval` keyspaces on the client for operational entities (sessions, receipts, etc.) as designed per feature
 - Background sync between local client state and server state
 - Event timestamps stored in UTC
 
@@ -128,7 +128,7 @@ src/
 - domain types
 - pricing rules
 - geo-fence definitions
-- Zero schemas or sync config for local-first entities
+- Typed keys and value shapes for `idb-keyval` stores, plus outbox/sync metadata for local-first entities
 
 ### Controllers
 
@@ -283,7 +283,7 @@ Isolation rules:
 3. Client requests camera or manual plate input.
 4. OCR pipeline extracts possible plate candidates.
 5. Client normalizes plate format.
-6. Client checks local Zero collection first for:
+6. Client checks local `idb-keyval` data first for:
    - active session
    - known vehicle
    - known customer linkage
@@ -306,7 +306,7 @@ Isolation rules:
 
 ### Target Approach
 
-Use Zero as the local-first store for operational entities:
+Use `idb-keyval` as the durable local-first store for operational entities (namespaced keys per feature):
 
 - vehicles
 - customers
@@ -319,7 +319,7 @@ Use TanStack Query for:
 - auth/session reads
 - analytics and aggregated reports
 - non-sync administrative workflows
-- background fetches not owned by Zero
+- background fetches where the server is the source of truth and local persistence is not required
 
 ### Local-First Rules
 
@@ -344,24 +344,25 @@ Recommended approach:
 - use explicit conflict states for records requiring manual review
 - keep an admin review queue for unresolved sync conflicts
 
-## Zero Integration Plan
+## Client persistence and sync plan (`idb-keyval`)
 
-The repo currently treats Zero as planned architecture rather than installed infrastructure. When implementing:
+Local-first storage uses **`idb-keyval`** (IndexedDB). Sync is **explicit**: features read/write keys locally, enqueue or flush changes, and call **Eden → Elysia** to reconcile with MongoDB—there is no separate realtime sync product in scope for v1.
 
-1. Add the real Zero dependencies.
-2. Create feature-local sync modules under `src/features/<feature>/sync/`.
-3. Define which entities are Zero-owned vs Query-owned.
-4. Use a real MongoDB-backed change-source implementation compatible with Zero.
-5. Do not invent APIs from memory; use actual package docs and source contracts.
+When implementing:
 
-Recommended initial Zero-owned entities:
+1. Depend on `idb-keyval` from `package.json` and wrap it in thin feature modules under `src/features/<feature>/sync/` (for example `<feature>.idb.ts` for stores, `<feature>.sync.ts` for outbox/retry).
+2. Define which entities are **idb-keyval–canonical** on the client vs **TanStack Query–only** server cache.
+3. Design idempotent server commands where possible so retries after offline periods are safe.
+4. Follow the real `idb-keyval` API; do not invent storage APIs.
+
+Recommended initial idb-keyval–backed entities:
 
 - parking sessions
 - vehicles
 - customers
 - receipts
 
-Recommended non-Zero entities at first:
+Recommended Query-only (no local canonical store) at first:
 
 - analytics aggregates
 - admin dashboards
@@ -497,13 +498,13 @@ Client access rules:
 
 ## Caching Strategy
 
-### Zero
+### `idb-keyval`
 
-- source of truth for local-first operational entities
+- durable store for local-first operational entities on the client
 
 ### TanStack Query
 
-- source of truth for remote aggregates and non-sync workflows
+- server-backed cache for remote aggregates and workflows that do not use local canonical persistence
 
 ### Service Worker
 
@@ -569,7 +570,7 @@ Track:
 ### Phase 2
 
 - PWA hardening
-- Zero local-first integration
+- `idb-keyval` local-first integration and sync/outbox
 - offline sync conflict handling
 - geo-fence enforcement
 
@@ -581,8 +582,8 @@ Track:
 
 ## Open Technical Decisions
 
-- exact Zero package set and version
-- exact MongoDB change-source implementation details
+- exact `idb-keyval` key layout and migration strategy per feature
+- conflict resolution UX for multi-device edits
 - OCR provider or in-browser model choice
 - whether pricing calculation is fully server-authoritative or partially synced
 - whether receipts need PDF export
