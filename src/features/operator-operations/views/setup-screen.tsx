@@ -5,22 +5,27 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { unwrapApiResult } from "@/features/operator-operations/lib/operator-operations.helpers";
-import type { OperatorContext } from "@/features/operator-operations/models/operator-operations.types";
+import { postBootstrapWithOffline } from "@/features/operator-operations/sync/operator.actions";
+import {
+	clearAllOperatorDataForUser,
+	clearLastActiveUserId,
+} from "@/features/operator-operations/sync/operator.store";
 import { authClient } from "@/server/better-auth/client";
-import { eden } from "@/server/eden";
 
 interface SetupScreenProps {
+	userId: string;
 	userName: string | null;
 }
 
-export function SetupScreen({ userName }: SetupScreenProps) {
+export function SetupScreen({ userId, userName }: SetupScreenProps) {
 	const queryClient = useQueryClient();
 	const [tenantName, setTenantName] = useState("");
 	const [initialLotName, setInitialLotName] = useState("");
 	const [initialBaseRate, setInitialBaseRate] = useState("50");
 	const logoutMutation = useMutation({
 		mutationFn: async () => {
+			await clearAllOperatorDataForUser(userId);
+			await clearLastActiveUserId();
 			await authClient.signOut();
 		},
 	});
@@ -38,13 +43,18 @@ export function SetupScreen({ userName }: SetupScreenProps) {
 			if (!Number.isFinite(rate) || rate < 0)
 				throw new Error("Base rate must be a valid non-negative number.");
 
-			return unwrapApiResult<OperatorContext>(
-				await eden.operator.bootstrap.post({
-					baseRate: rate,
-					initialLotName: trimmedLot,
-					tenantName: trimmedTenant,
-				}),
-			);
+			const ctx = await postBootstrapWithOffline({
+				baseRate: rate,
+				initialLotName: trimmedLot,
+				tenantName: trimmedTenant,
+				userId,
+			});
+			if (!ctx) {
+				throw new Error(
+					"Connect to the internet to create your workspace, then you can work offline.",
+				);
+			}
+			return ctx;
 		},
 		onError: (error) => {
 			toast.danger(error instanceof Error ? error.message : "Setup failed.", {

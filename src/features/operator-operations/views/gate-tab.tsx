@@ -1,6 +1,14 @@
 "use client";
 
-import { Calendar, DateField, DatePicker, Label, toast } from "@heroui/react";
+import {
+	Calendar,
+	DateField,
+	DatePicker,
+	Label,
+	ListBox,
+	Select as HeroSelect,
+	toast,
+} from "@heroui/react";
 import type { DateValue } from "@internationalized/date";
 import {
 	now as dateNow,
@@ -8,7 +16,7 @@ import {
 	parseAbsoluteToLocal,
 } from "@internationalized/date";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -22,6 +30,11 @@ import {
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import {
+	defaultNationalityCodeForLotCountry,
+	getNationalitySelectOptions,
+} from "@/features/operator-operations/lib/operator-locale.constants";
+import { countryCodeToFlagEmoji } from "@/features/operator-operations/lib/operator-locale.display";
+import {
 	formatCurrency,
 	formatDateTime,
 	formatDuration,
@@ -34,10 +47,25 @@ import type {
 	OperatorContext,
 	PlateLookupResult,
 	ReceiptPreview,
-	SessionSnapshot,
+	SessionLists,
 } from "@/features/operator-operations/models/operator-operations.types";
+import {
+	localLookupPlate,
+	mergeSessionIntoLists,
+	postEntryTimeWithOffline,
+	postEntryWithOffline,
+	postExitWithOffline,
+	postSelectGateWithOffline,
+} from "@/features/operator-operations/sync/operator.actions";
+import { loadSessionLists } from "@/features/operator-operations/sync/operator.store";
 import { PlateCameraSheet } from "@/features/operator-operations/views/plate-camera-sheet";
+import { cn } from "@/lib/utils";
 import { eden } from "@/server/eden";
+
+const NATIONALITY_OPTIONS = getNationalitySelectOptions();
+
+const nationalityFieldTriggerClass =
+	"min-h-12 w-full rounded-xl border border-border/60 bg-secondary px-3 shadow-none ring-0 transition-colors hover:border-border focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/20";
 
 function dateValueFromEntryAt(entryAt: string | Date): DateValue {
 	const iso = entryAt instanceof Date ? entryAt.toISOString() : String(entryAt);
@@ -48,6 +76,7 @@ interface GateTabProps {
 	operatorContext: OperatorContext;
 	selectedLotId: string | null;
 	onReceiptReady: (preview: ReceiptPreview, sessionId: string) => void;
+	userId: string;
 }
 
 type GateMode = "search" | "entry" | "exit" | "duplicate";
@@ -56,6 +85,7 @@ export function GateTab({
 	operatorContext,
 	selectedLotId,
 	onReceiptReady,
+	userId,
 }: GateTabProps) {
 	const queryClient = useQueryClient();
 	const activeLot =
@@ -66,11 +96,25 @@ export function GateTab({
 	const activeGate =
 		gates.find((g) => g.id === selectedGateId) ?? gates[0] ?? null;
 
+	const refreshSessionsFromLocal = async () => {
+		if (!selectedLotId) return;
+		const fresh = await loadSessionLists(userId, selectedLotId);
+		if (fresh) {
+			queryClient.setQueryData(
+				["operator-sessions", selectedLotId, userId],
+				fresh,
+			);
+		}
+	};
+
 	const [mode, setMode] = useState<GateMode>("search");
 	const [plateNumber, setPlateNumber] = useState("");
 	const [customerName, setCustomerName] = useState("");
 	const [customerPhone, setCustomerPhone] = useState("");
 	const [vehicleType, setVehicleType] = useState("");
+	const [nationalityCode, setNationalityCode] = useState(() =>
+		defaultNationalityCodeForLotCountry(activeLot?.countryCode),
+	);
 	const [lookupResult, setLookupResult] = useState<PlateLookupResult | null>(
 		null,
 	);
@@ -81,19 +125,30 @@ export function GateTab({
 	const activeSession = lookupResult?.activeSession ?? null;
 	const currentBaseRate = activeLot?.baseRate ?? 0;
 
+	useEffect(() => {
+		setNationalityCode(defaultNationalityCodeForLotCountry(activeLot?.countryCode));
+	}, [activeLot?.countryCode]);
+
 	const selectGateMutation = useMutation({
-		mutationFn: async (parkingGateId: string) =>
-			unwrapApiResult<OperatorContext>(
-				await eden.operator["select-gate"].post({ parkingGateId }),
-			),
+		mutationFn: async (parkingGateId: string) => {
+			const ctx = await postSelectGateWithOffline({
+				operatorContext,
+				parkingGateId,
+				userId,
+			});
+			if (!ctx) {
+				throw new Error("Could not switch gate.");
+			}
+			return ctx;
+		},
 		onError: (error) => {
 			toast.danger(
 				error instanceof Error ? error.message : "Could not switch gate.",
 				{ timeout: 2000 },
 			);
 		},
-		onSuccess: async () => {
-			await queryClient.invalidateQueries({ queryKey: ["operator-context"] });
+		onSuccess: () => {
+			void queryClient.invalidateQueries({ queryKey: ["operator-context"] });
 		},
 	});
 
@@ -102,6 +157,7 @@ export function GateTab({
 		setCustomerName("");
 		setCustomerPhone("");
 		setVehicleType("");
+		setNationalityCode(defaultNationalityCodeForLotCountry(activeLot?.countryCode));
 		setLookupResult(null);
 		setEntryTimeDraft(null);
 		setFinalAmount("0");
@@ -110,10 +166,29 @@ export function GateTab({
 	};
 
 	const lookupMutation = useMutation({
-		mutationFn: async () =>
-			unwrapApiResult<PlateLookupResult>(
+		mutationFn: async () => {
+			const tenantId = operatorContext.tenant?.id;
+			if (
+				typeof navigator !== "undefined" &&
+				!navigator.onLine &&
+				userId &&
+				selectedLotId &&
+				tenantId
+			) {
+				const local = await localLookupPlate({
+					parkingLotId: selectedLotId,
+					plateNumber,
+					tenantId,
+					userId,
+				});
+				if (local) {
+					return local;
+				}
+			}
+			return unwrapApiResult<PlateLookupResult>(
 				await eden.operator.lookup.plate.post({ plateNumber }),
-			),
+			);
+		},
 		onError: (error) => {
 			toast.danger(
 				error instanceof Error ? error.message : "Plate lookup failed.",
@@ -145,26 +220,30 @@ export function GateTab({
 
 	const createEntryMutation = useMutation({
 		mutationFn: async () =>
-			unwrapApiResult<{
-				created: boolean;
-				duplicateSession: SessionSnapshot | null;
-			}>(
-				await eden.operator.entry.post({
-					customerName,
-					customerPhone,
-					displayPlateNumber: plateNumber,
-					parkingGateId: selectedGateId ?? undefined,
-					parkingLotId: selectedLotId ?? "",
-					vehicleType,
-				}),
-			),
+			postEntryWithOffline({
+				customerName,
+				customerPhone,
+				displayPlateNumber: plateNumber,
+				nationalityCode,
+				operatorContext,
+				parkingGateId: selectedGateId ?? undefined,
+				parkingLotId: selectedLotId ?? "",
+				userId,
+				vehicleType,
+			}),
 		onError: (error) => {
 			toast.danger(
 				error instanceof Error ? error.message : "Entry creation failed.",
 				{ timeout: 2000 },
 			);
 		},
-		onSuccess: async (result) => {
+		onSuccess: (result) => {
+			if ("invalidGate" in result && result.invalidGate) {
+				toast.danger("Pick a valid gate for this parking lot.", {
+					timeout: 2000,
+				});
+				return;
+			}
 			if (!result.created && result.duplicateSession) {
 				setLookupResult({
 					activeSession: result.duplicateSession,
@@ -180,19 +259,31 @@ export function GateTab({
 			}
 
 			resetForm();
-			await queryClient.invalidateQueries({ queryKey: ["operator-sessions"] });
+			if (result.created && result.session && selectedLotId) {
+				queryClient.setQueryData(
+					["operator-sessions", selectedLotId, userId],
+					(prev: SessionLists | undefined) => {
+						const lists = prev ?? {
+							activeSessions: [],
+							recentSessions: [],
+						};
+						return mergeSessionIntoLists(lists, result.session!);
+					},
+				);
+			}
+			void refreshSessionsFromLocal();
 		},
 	});
 
 	const updateEntryTimeMutation = useMutation({
 		mutationFn: async () => {
 			if (!entryTimeDraft) throw new Error("Please select an entry time.");
-			return unwrapApiResult<boolean>(
-				await eden.operator["entry-time"].post({
-					entryAt: entryTimeDraft.toDate(getLocalTimeZone()).toISOString(),
-					parkingSessionId: lookupResult?.activeSession?.id ?? "",
-				}),
-			);
+			return postEntryTimeWithOffline({
+				entryAt: entryTimeDraft.toDate(getLocalTimeZone()).toISOString(),
+				operatorContext,
+				parkingSessionId: lookupResult?.activeSession?.id ?? "",
+				userId,
+			});
 		},
 		onError: (error) => {
 			toast.danger(
@@ -200,15 +291,18 @@ export function GateTab({
 				{ timeout: 2000 },
 			);
 		},
-		onSuccess: async () => {
-			await queryClient.invalidateQueries({ queryKey: ["operator-sessions"] });
-			const freshLookup = await lookupMutation.mutateAsync();
-			setLookupResult(freshLookup);
-			setEntryTimeDraft(
-				freshLookup.activeSession
-					? dateValueFromEntryAt(freshLookup.activeSession.entryAt)
-					: null,
-			);
+		onSuccess: () => {
+			void refreshSessionsFromLocal();
+			lookupMutation.mutate(undefined, {
+				onSuccess: (freshLookup) => {
+					setLookupResult(freshLookup);
+					setEntryTimeDraft(
+						freshLookup.activeSession
+							? dateValueFromEntryAt(freshLookup.activeSession.entryAt)
+							: null,
+					);
+				},
+			});
 		},
 	});
 
@@ -225,30 +319,24 @@ export function GateTab({
 			)
 				throw new Error("Override amount must be valid.");
 
-			return unwrapApiResult<{
-				amount: number;
-				customerName: string;
-				customerPhone: string;
-				entryAt: string;
-				exitAt: string;
-				operatorName: string;
-				parkingLotName: string;
-				plateNumber: string;
-				tenantName: string;
-			}>(
-				await eden.operator.exit.post({
-					finalAmount: amount,
-					overrideAmount: override,
-					parkingSessionId: lookupResult?.activeSession?.id ?? "",
-				}),
-			);
+			const closed = await postExitWithOffline({
+				finalAmount: amount,
+				operatorContext,
+				overrideAmount: override,
+				parkingSessionId: lookupResult?.activeSession?.id ?? "",
+				userId,
+			});
+			if (!closed) {
+				throw new Error("No matching parked vehicle was found.");
+			}
+			return closed;
 		},
 		onError: (error) => {
 			toast.danger(error instanceof Error ? error.message : "Exit failed.", {
 				timeout: 2000,
 			});
 		},
-		onSuccess: async (closed) => {
+		onSuccess: (closed) => {
 			const sessionId = lookupResult?.activeSession?.id ?? "";
 			onReceiptReady(
 				{
@@ -271,7 +359,7 @@ export function GateTab({
 				sessionId,
 			);
 			resetForm();
-			await queryClient.invalidateQueries({ queryKey: ["operator-sessions"] });
+			void refreshSessionsFromLocal();
 		},
 	});
 
@@ -651,6 +739,56 @@ export function GateTab({
 								/>
 							</div>
 						</div>
+
+						<HeroSelect
+							className="w-full min-w-0"
+							onChange={(key) => {
+								if (key == null) return;
+								setNationalityCode(String(key));
+							}}
+							placeholder="Nationality"
+							value={nationalityCode}
+						>
+							<Label className="mb-1.5 font-medium text-muted-foreground text-xs uppercase tracking-wider">
+								Nationality
+							</Label>
+							<HeroSelect.Trigger
+								className={cn(nationalityFieldTriggerClass, "min-w-0 px-3")}
+							>
+								<HeroSelect.Value />
+								<HeroSelect.Indicator />
+							</HeroSelect.Trigger>
+							<HeroSelect.Popover className="max-h-[min(24rem,70vh)]">
+								<ListBox>
+									{NATIONALITY_OPTIONS.map((c) => {
+										const flag = countryCodeToFlagEmoji(c.code);
+										return (
+											<ListBox.Item
+												id={c.code}
+												key={c.code}
+												textValue={`${c.name} (${c.code})`}
+											>
+												<span className="flex min-w-0 flex-1 items-center gap-2 text-start">
+													<span
+														aria-hidden
+														className="flex h-8 w-10 shrink-0 items-center justify-center text-xl leading-none"
+													>
+														{flag}
+													</span>
+													<span className="min-w-0 truncate font-medium leading-tight">
+														{c.name}
+													</span>
+													<span className="shrink-0 font-medium text-muted-foreground text-xs tabular-nums">
+														{c.code}
+													</span>
+												</span>
+												<ListBox.ItemIndicator />
+											</ListBox.Item>
+										);
+									})}
+								</ListBox>
+							</HeroSelect.Popover>
+						</HeroSelect>
 
 						<div>
 							<label

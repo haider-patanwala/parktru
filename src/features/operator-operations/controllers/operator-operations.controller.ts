@@ -1,5 +1,9 @@
 import { Elysia, t } from "elysia";
 import {
+	getIdempotentResponse,
+	saveIdempotentResponse,
+} from "@/features/operator-operations/models/operator-idempotency.repository";
+import {
 	bootstrapOperatorWorkspace,
 	closeParkingExit,
 	createParkingEntry,
@@ -17,7 +21,10 @@ import {
 	setSelectedParkingLotForUser,
 	updateParkingEntryTime,
 } from "@/features/operator-operations/models/operator-operations.repository";
-import type { ApiResult } from "@/features/operator-operations/models/operator-operations.types";
+import type {
+	ApiResult,
+	OperatorContext,
+} from "@/features/operator-operations/models/operator-operations.types";
 import { auth } from "@/server/better-auth/config";
 
 function failure(message: string): ApiResult<never> {
@@ -41,6 +48,40 @@ async function getAuthenticatedUser(request: Request) {
 	});
 
 	return session?.user ?? null;
+}
+
+async function withIdempotency<T>(input: {
+	key: string | undefined;
+	run: () => Promise<T>;
+	route: string;
+	shouldCache?: (result: T) => boolean;
+	userId: string;
+}): Promise<T> {
+	const trimmed = input.key?.trim();
+	if (!trimmed) {
+		return input.run();
+	}
+	const cached = await getIdempotentResponse({
+		key: trimmed,
+		userId: input.userId,
+	});
+	if (cached !== null) {
+		return cached as T;
+	}
+	const result = await input.run();
+	const allowCache =
+		typeof input.shouldCache === "function"
+			? input.shouldCache(result)
+			: result !== null && result !== undefined;
+	if (allowCache) {
+		await saveIdempotentResponse({
+			key: trimmed,
+			response: result,
+			route: input.route,
+			userId: input.userId,
+		});
+	}
+	return result;
 }
 
 export const operatorOperationsController = new Elysia({
@@ -74,22 +115,29 @@ export const operatorOperationsController = new Elysia({
 			}
 
 			return success(
-				await bootstrapOperatorWorkspace({
-					baseRate: body.baseRate,
-					initialLotName: body.initialLotName,
-					tenantName: body.tenantName,
-					user: {
-						email: user.email,
-						id: user.id,
-						name: user.name,
-						role: "role" in user ? user.role : null,
-					},
+				await withIdempotency({
+					key: body.idempotencyKey,
+					route: "POST /operator/bootstrap",
+					run: () =>
+						bootstrapOperatorWorkspace({
+							baseRate: body.baseRate,
+							initialLotName: body.initialLotName,
+							tenantName: body.tenantName,
+							user: {
+								email: user.email,
+								id: user.id,
+								name: user.name,
+								role: "role" in user ? user.role : null,
+							},
+						}),
+					userId: user.id,
 				}),
 			);
 		},
 		{
 			body: t.Object({
 				baseRate: t.Numeric({ minimum: 0 }),
+				idempotencyKey: t.Optional(t.String()),
 				initialLotName: t.String({ minLength: 2 }),
 				tenantName: t.String({ minLength: 2 }),
 			}),
@@ -111,15 +159,22 @@ export const operatorOperationsController = new Elysia({
 				return failure("Lot name must be at least 2 characters.");
 			}
 
-			const context = await createParkingLotForOperator({
-				baseRate: body.baseRate,
-				name,
-				user: {
-					email: user.email,
-					id: user.id,
-					name: user.name,
-					role: "role" in user ? user.role : null,
-				},
+			const context = await withIdempotency({
+				key: body.idempotencyKey,
+				route: "POST /operator/parking-lot",
+				run: () =>
+					createParkingLotForOperator({
+						baseRate: body.baseRate,
+						name,
+						user: {
+							email: user.email,
+							id: user.id,
+							name: user.name,
+							role: "role" in user ? user.role : null,
+						},
+					}),
+				shouldCache: (ctx) => ctx !== null,
+				userId: user.id,
 			});
 
 			if (!context) {
@@ -134,6 +189,7 @@ export const operatorOperationsController = new Elysia({
 		{
 			body: t.Object({
 				baseRate: t.Optional(t.Numeric({ minimum: 0 })),
+				idempotencyKey: t.Optional(t.String()),
 				name: t.String({ minLength: 1 }),
 			}),
 		},
@@ -148,27 +204,38 @@ export const operatorOperationsController = new Elysia({
 				return failure("Sign in before switching lots.");
 			}
 
-			const updated = await setSelectedParkingLotForUser({
-				parkingLotId: body.parkingLotId,
+			const context = await withIdempotency({
+				key: body.idempotencyKey,
+				route: "POST /operator/select-lot",
+				run: async () => {
+					const updated = await setSelectedParkingLotForUser({
+						parkingLotId: body.parkingLotId,
+						userId: user.id,
+					});
+					if (!updated) {
+						return null;
+					}
+					return getOperatorContextForUser({
+						email: user.email,
+						id: user.id,
+						name: user.name,
+						role: "role" in user ? user.role : null,
+					});
+				},
+				shouldCache: (ctx) => ctx !== null,
 				userId: user.id,
 			});
 
-			if (!updated) {
+			if (!context) {
 				set.status = 403;
 				return failure("That lot is not available for this operator.");
 			}
 
-			return success(
-				await getOperatorContextForUser({
-					email: user.email,
-					id: user.id,
-					name: user.name,
-					role: "role" in user ? user.role : null,
-				}),
-			);
+			return success(context);
 		},
 		{
 			body: t.Object({
+				idempotencyKey: t.Optional(t.String()),
 				parkingLotId: t.String(),
 			}),
 		},
@@ -183,27 +250,38 @@ export const operatorOperationsController = new Elysia({
 				return failure("Sign in before switching gates.");
 			}
 
-			const updated = await setSelectedParkingGateForUser({
-				parkingGateId: body.parkingGateId,
+			const context = await withIdempotency({
+				key: body.idempotencyKey,
+				route: "POST /operator/select-gate",
+				run: async () => {
+					const updated = await setSelectedParkingGateForUser({
+						parkingGateId: body.parkingGateId,
+						userId: user.id,
+					});
+					if (!updated) {
+						return null;
+					}
+					return getOperatorContextForUser({
+						email: user.email,
+						id: user.id,
+						name: user.name,
+						role: "role" in user ? user.role : null,
+					});
+				},
+				shouldCache: (ctx) => ctx !== null,
 				userId: user.id,
 			});
 
-			if (!updated) {
+			if (!context) {
 				set.status = 403;
 				return failure("That gate is not available for the current lot.");
 			}
 
-			return success(
-				await getOperatorContextForUser({
-					email: user.email,
-					id: user.id,
-					name: user.name,
-					role: "role" in user ? user.role : null,
-				}),
-			);
+			return success(context);
 		},
 		{
 			body: t.Object({
+				idempotencyKey: t.Optional(t.String()),
 				parkingGateId: t.String(),
 			}),
 		},
@@ -218,45 +296,69 @@ export const operatorOperationsController = new Elysia({
 				return failure("Sign in before creating gates.");
 			}
 
-			const context = await getOperatorContextForUser({
-				email: user.email,
-				id: user.id,
-				name: user.name,
-				role: "role" in user ? user.role : null,
+			type GateOutcome =
+				| { context: OperatorContext; kind: "ok" }
+				| { kind: "forbidden_lot" }
+				| { kind: "no_tenant" };
+
+			const outcome = await withIdempotency({
+				key: body.idempotencyKey,
+				route: "POST /operator/parking-gate",
+				run: async (): Promise<GateOutcome> => {
+					const context = await getOperatorContextForUser({
+						email: user.email,
+						id: user.id,
+						name: user.name,
+						role: "role" in user ? user.role : null,
+					});
+
+					if (!context.tenant) {
+						return { kind: "no_tenant" };
+					}
+
+					const allowed = context.allowedLots.some(
+						(lot) => lot.id === body.parkingLotId,
+					);
+
+					if (!allowed) {
+						return { kind: "forbidden_lot" };
+					}
+
+					await createParkingGateForLot({
+						name: body.name.trim(),
+						parkingLotId: body.parkingLotId,
+						tenantId: context.tenant.id,
+						userId: user.id,
+					});
+
+					const next = await getOperatorContextForUser({
+						email: user.email,
+						id: user.id,
+						name: user.name,
+						role: "role" in user ? user.role : null,
+					});
+
+					return { context: next, kind: "ok" };
+				},
+				shouldCache: (r) => r.kind === "ok",
+				userId: user.id,
 			});
 
-			if (!context.tenant) {
+			if (outcome.kind === "no_tenant") {
 				set.status = 409;
 				return failure("Create an operator workspace before adding gates.");
 			}
 
-			const allowed = context.allowedLots.some(
-				(lot) => lot.id === body.parkingLotId,
-			);
-
-			if (!allowed) {
+			if (outcome.kind === "forbidden_lot") {
 				set.status = 403;
 				return failure("That lot is not available for this operator.");
 			}
 
-			await createParkingGateForLot({
-				name: body.name.trim(),
-				parkingLotId: body.parkingLotId,
-				tenantId: context.tenant.id,
-				userId: user.id,
-			});
-
-			return success(
-				await getOperatorContextForUser({
-					email: user.email,
-					id: user.id,
-					name: user.name,
-					role: "role" in user ? user.role : null,
-				}),
-			);
+			return success(outcome.context);
 		},
 		{
 			body: t.Object({
+				idempotencyKey: t.Optional(t.String()),
 				name: t.String({ minLength: 2 }),
 				parkingLotId: t.String(),
 			}),
@@ -509,6 +611,8 @@ export const operatorOperationsController = new Elysia({
 				return failure("Create an operator workspace before creating entries.");
 			}
 
+			const tenantId = context.tenant.id;
+
 			const allowed = context.allowedLots.some(
 				(lot) => lot.id === body.parkingLotId,
 			);
@@ -518,15 +622,23 @@ export const operatorOperationsController = new Elysia({
 				return failure("That lot is not available for this operator.");
 			}
 
-			const entryResult = await createParkingEntry({
-				customerName: body.customerName,
-				customerPhone: body.customerPhone,
-				displayPlateNumber: body.displayPlateNumber,
-				parkingGateId: body.parkingGateId,
-				parkingLotId: body.parkingLotId,
-				tenantId: context.tenant.id,
+			const entryResult = await withIdempotency({
+				key: body.idempotencyKey,
+				route: "POST /operator/entry",
+				run: () =>
+					createParkingEntry({
+						clientMutationId: body.clientMutationId,
+						customerName: body.customerName,
+						customerPhone: body.customerPhone,
+						displayPlateNumber: body.displayPlateNumber,
+						nationalityCode: body.nationalityCode,
+						parkingGateId: body.parkingGateId,
+						parkingLotId: body.parkingLotId,
+						tenantId,
+						userId: user.id,
+						vehicleType: body.vehicleType,
+					}),
 				userId: user.id,
-				vehicleType: body.vehicleType,
 			});
 
 			if ("invalidGate" in entryResult && entryResult.invalidGate) {
@@ -538,9 +650,14 @@ export const operatorOperationsController = new Elysia({
 		},
 		{
 			body: t.Object({
+				clientMutationId: t.Optional(t.String()),
 				customerName: t.String({ default: "" }),
-				customerPhone: t.String({ minLength: 5 }),
+				/** Match operator UI + offline outbox (short codes, empty walk-ins). */
+				customerPhone: t.String({ default: "" }),
 				displayPlateNumber: t.String({ minLength: 1 }),
+				idempotencyKey: t.Optional(t.String()),
+				/** ISO 3166-1 alpha-2 */
+				nationalityCode: t.Optional(t.String()),
 				parkingGateId: t.Optional(t.String()),
 				parkingLotId: t.String(),
 				vehicleType: t.Optional(t.String()),
@@ -571,10 +688,19 @@ export const operatorOperationsController = new Elysia({
 				);
 			}
 
-			const updated = await updateParkingEntryTime({
-				entryAt: body.entryAt,
-				parkingSessionId: body.parkingSessionId,
-				tenantId: context.tenant.id,
+			const tenantId = context.tenant.id;
+
+			const updated = await withIdempotency({
+				key: body.idempotencyKey,
+				route: "POST /operator/entry-time",
+				run: () =>
+					updateParkingEntryTime({
+						entryAt: body.entryAt,
+						parkingSessionId: body.parkingSessionId,
+						tenantId,
+						userId: user.id,
+					}),
+				shouldCache: (doc) => doc !== null,
 				userId: user.id,
 			});
 
@@ -588,6 +714,7 @@ export const operatorOperationsController = new Elysia({
 		{
 			body: t.Object({
 				entryAt: t.String(),
+				idempotencyKey: t.Optional(t.String()),
 				parkingSessionId: t.String(),
 			}),
 		},
@@ -616,6 +743,8 @@ export const operatorOperationsController = new Elysia({
 				);
 			}
 
+			const tenantId = context.tenant.id;
+
 			const allowed = context.allowedLots.some(
 				(lot) => lot.id === body.parkingLotId,
 			);
@@ -640,12 +769,18 @@ export const operatorOperationsController = new Elysia({
 				return failure("Country must be a valid ISO 3166-1 alpha-2 code.");
 			}
 
-			await setParkingLotBaseRate({
-				baseRate: body.baseRate,
-				countryCode: countryRaw || undefined,
-				currencyCode: currencyRaw || undefined,
-				parkingLotId: body.parkingLotId,
-				tenantId: context.tenant.id,
+			await withIdempotency({
+				key: body.idempotencyKey,
+				route: "POST /operator/lot-rate",
+				run: () =>
+					setParkingLotBaseRate({
+						baseRate: body.baseRate,
+						countryCode: countryRaw || undefined,
+						currencyCode: currencyRaw || undefined,
+						parkingLotId: body.parkingLotId,
+						tenantId,
+						userId: user.id,
+					}),
 				userId: user.id,
 			});
 
@@ -656,6 +791,7 @@ export const operatorOperationsController = new Elysia({
 				baseRate: t.Numeric({ minimum: 0 }),
 				countryCode: t.Optional(t.String()),
 				currencyCode: t.Optional(t.String()),
+				idempotencyKey: t.Optional(t.String()),
 				parkingLotId: t.String(),
 			}),
 		},
@@ -682,17 +818,26 @@ export const operatorOperationsController = new Elysia({
 				return failure("Create an operator workspace before closing exits.");
 			}
 
-			const closed = await closeParkingExit({
-				finalAmount: body.finalAmount,
-				overrideAmount: body.overrideAmount ?? null,
-				parkingSessionId: body.parkingSessionId,
-				tenantId: context.tenant.id,
-				user: {
-					email: user.email,
-					id: user.id,
-					name: user.name,
-					role: "role" in user ? user.role : null,
-				},
+			const tenantId = context.tenant.id;
+
+			const closed = await withIdempotency({
+				key: body.idempotencyKey,
+				route: "POST /operator/exit",
+				run: () =>
+					closeParkingExit({
+						finalAmount: body.finalAmount,
+						overrideAmount: body.overrideAmount ?? null,
+						parkingSessionId: body.parkingSessionId,
+						tenantId,
+						user: {
+							email: user.email,
+							id: user.id,
+							name: user.name,
+							role: "role" in user ? user.role : null,
+						},
+					}),
+				shouldCache: (c) => c !== null,
+				userId: user.id,
 			});
 
 			if (!closed) {
@@ -705,6 +850,7 @@ export const operatorOperationsController = new Elysia({
 		{
 			body: t.Object({
 				finalAmount: t.Numeric({ minimum: 0 }),
+				idempotencyKey: t.Optional(t.String()),
 				overrideAmount: t.Optional(t.Numeric({ minimum: 0 })),
 				parkingSessionId: t.String(),
 			}),
@@ -732,10 +878,19 @@ export const operatorOperationsController = new Elysia({
 				return failure("Create an operator workspace before sharing receipts.");
 			}
 
-			const preview = await generateReceiptLink({
-				operatorName: user.name ?? user.email ?? "Operator",
-				parkingSessionId: body.parkingSessionId,
-				tenantId: context.tenant.id,
+			const tenantId = context.tenant.id;
+
+			const preview = await withIdempotency({
+				key: body.idempotencyKey,
+				route: "POST /operator/receipt/link",
+				run: () =>
+					generateReceiptLink({
+						operatorName: user.name ?? user.email ?? "Operator",
+						parkingSessionId: body.parkingSessionId,
+						tenantId,
+						userId: user.id,
+					}),
+				shouldCache: (p) => p !== null,
 				userId: user.id,
 			});
 
@@ -750,6 +905,7 @@ export const operatorOperationsController = new Elysia({
 		},
 		{
 			body: t.Object({
+				idempotencyKey: t.Optional(t.String()),
 				parkingSessionId: t.String(),
 			}),
 		},

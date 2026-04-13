@@ -44,6 +44,10 @@ function toObjectId(value: string | Types.ObjectId) {
 	return value instanceof Types.ObjectId ? value : new Types.ObjectId(value);
 }
 
+function isMongoObjectIdString(value: string) {
+	return /^[a-f0-9]{24}$/i.test(value);
+}
+
 function buildReceiptNumber() {
 	const stamp = new Date().toISOString().slice(0, 10).replaceAll("-", "");
 	const suffix = Math.random().toString(36).slice(2, 7).toUpperCase();
@@ -179,6 +183,7 @@ function mapSessionSnapshot(
 		entryAt: Date;
 		exitAt?: Date | null;
 		finalAmount?: number | null;
+		nationalityCode?: string | null;
 		overrideAmount?: number | null;
 		parkingGateId?: Types.ObjectId | string | null;
 		parkingLotId: Types.ObjectId | string;
@@ -196,6 +201,7 @@ function mapSessionSnapshot(
 		baseRateSnapshot: session.baseRateSnapshot,
 		customerName: session.customerName ?? "",
 		customerPhone: session.customerPhone ?? "",
+		nationalityCode: session.nationalityCode?.trim() ?? "",
 		displayPlateNumber: session.displayPlateNumber,
 		entryAt: session.entryAt.toISOString(),
 		exitAt: session.exitAt ? session.exitAt.toISOString() : null,
@@ -912,9 +918,11 @@ export async function lookupPlateForTenant(input: {
 }
 
 export async function createParkingEntry(input: {
+	clientMutationId?: string | null;
 	customerName: string;
 	customerPhone: string;
 	displayPlateNumber: string;
+	nationalityCode?: string;
 	parkingGateId?: string | null;
 	parkingLotId: string;
 	tenantId: string;
@@ -923,9 +931,30 @@ export async function createParkingEntry(input: {
 }): Promise<
 	| { created: false; duplicateSession: null; invalidGate: true }
 	| { created: false; duplicateSession: SessionSnapshot }
-	| { created: true; duplicateSession: null }
+	| { created: true; duplicateSession: null; session: SessionSnapshot }
 > {
 	await ensureConnected();
+
+	const trimmedClientId = input.clientMutationId?.trim();
+	if (trimmedClientId) {
+		const idempotent = await ParkingSessionModel.findOne({
+			clientMutationId: trimmedClientId,
+			tenantId: toObjectId(input.tenantId),
+		})
+			.lean()
+			.exec();
+		if (idempotent) {
+			const [lotNameMap, gateNameMap] = await Promise.all([
+				getLotNameMap(input.tenantId),
+				getGateNameMap(input.tenantId),
+			]);
+			return {
+				created: true,
+				duplicateSession: null,
+				session: mapSessionSnapshot(idempotent, lotNameMap, gateNameMap),
+			};
+		}
+	}
 
 	const gateResolution = await resolveParkingGateIdForEntry({
 		parkingGateId: input.parkingGateId,
@@ -970,13 +999,15 @@ export async function createParkingEntry(input: {
 		.lean()
 		.exec();
 
-	await ParkingSessionModel.create({
+	const created = await ParkingSessionModel.create({
 		baseRateSnapshot: rate?.baseRate ?? 0,
+		clientMutationId: trimmedClientId || null,
 		createdBy: input.userId,
 		customerName: input.customerName.trim(),
 		customerPhone: input.customerPhone.trim(),
 		displayPlateNumber: input.displayPlateNumber.trim(),
 		entryAt: new Date(),
+		nationalityCode: input.nationalityCode?.trim() ?? "",
 		normalizedPlateNumber,
 		parkingGateId: gateResolution.gateOid,
 		parkingLotId: toObjectId(input.parkingLotId),
@@ -985,9 +1016,15 @@ export async function createParkingEntry(input: {
 		vehicleType: input.vehicleType?.trim() ?? "",
 	});
 
+	const [lotNameMap, gateNameMap] = await Promise.all([
+		getLotNameMap(input.tenantId),
+		getGateNameMap(input.tenantId),
+	]);
+
 	return {
 		created: true as const,
 		duplicateSession: null,
+		session: mapSessionSnapshot(created, lotNameMap, gateNameMap),
 	};
 }
 
@@ -999,10 +1036,10 @@ export async function updateParkingEntryTime(input: {
 }) {
 	await ensureConnected();
 
-	const session = await ParkingSessionModel.findOne({
-		_id: toObjectId(input.parkingSessionId),
-		tenantId: toObjectId(input.tenantId),
-	}).exec();
+	const session = await findParkingSessionScoped({
+		parkingSessionId: input.parkingSessionId,
+		tenantId: input.tenantId,
+	});
 
 	if (!session) {
 		return null;
@@ -1130,6 +1167,32 @@ export async function setSelectedParkingGateForUser(input: {
 	return profile;
 }
 
+async function findParkingSessionScoped(input: {
+	parkingSessionId: string;
+	tenantId: string;
+	status?: "active" | "closed";
+}) {
+	const tenantOid = toObjectId(input.tenantId);
+	if (isMongoObjectIdString(input.parkingSessionId)) {
+		const q: Record<string, unknown> = {
+			_id: toObjectId(input.parkingSessionId),
+			tenantId: tenantOid,
+		};
+		if (input.status) {
+			q.status = input.status;
+		}
+		return ParkingSessionModel.findOne(q).exec();
+	}
+	const q: Record<string, unknown> = {
+		clientMutationId: input.parkingSessionId.trim(),
+		tenantId: tenantOid,
+	};
+	if (input.status) {
+		q.status = input.status;
+	}
+	return ParkingSessionModel.findOne(q).exec();
+}
+
 export async function closeParkingExit(input: {
 	finalAmount: number;
 	overrideAmount: number | null;
@@ -1139,11 +1202,11 @@ export async function closeParkingExit(input: {
 }) {
 	await ensureConnected();
 
-	const session = await ParkingSessionModel.findOne({
-		_id: toObjectId(input.parkingSessionId),
+	const session = await findParkingSessionScoped({
+		parkingSessionId: input.parkingSessionId,
 		status: "active",
-		tenantId: toObjectId(input.tenantId),
-	}).exec();
+		tenantId: input.tenantId,
+	});
 
 	if (!session) {
 		return null;
@@ -1183,20 +1246,20 @@ export async function generateReceiptLink(input: {
 }): Promise<ReceiptPreview | null> {
 	await ensureConnected();
 
-	const session = await ParkingSessionModel.findOne({
-		_id: input.parkingSessionId,
+	const sessionDoc = await findParkingSessionScoped({
+		parkingSessionId: input.parkingSessionId,
 		status: "closed",
 		tenantId: input.tenantId,
-	})
-		.lean()
-		.exec();
+	});
 
-	if (!session || !session.exitAt || !session.finalAmount) {
+	if (!sessionDoc || !sessionDoc.exitAt || !sessionDoc.finalAmount) {
 		return null;
 	}
 
+	const session = sessionDoc.toObject();
+
 	let receipt = await ReceiptModel.findOne({
-		parkingSessionId: input.parkingSessionId,
+		parkingSessionId: session._id,
 		tenantId: input.tenantId,
 	}).exec();
 
@@ -1240,8 +1303,8 @@ export async function generateReceiptLink(input: {
 			customerPhone: session.customerPhone,
 			displayPlateNumber: session.displayPlateNumber,
 			entryAt: session.entryAt,
-			exitAt: session.exitAt,
-			finalAmount: session.finalAmount,
+			exitAt: session.exitAt as Date,
+			finalAmount: session.finalAmount as number,
 		},
 		shareToken: receipt.shareToken,
 		tenantName: tenant?.name ?? "ParkTru",

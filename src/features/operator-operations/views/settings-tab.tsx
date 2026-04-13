@@ -18,21 +18,32 @@ import { type ReactNode, useEffect, useState } from "react";
 import {
 	COUNTRY_OPTIONS,
 	CURRENCY_OPTIONS,
+	currencyOptionDisplayName,
 } from "@/features/operator-operations/lib/operator-locale.constants";
 import {
 	countryCodeToFlagEmoji,
 	getCurrencySymbol,
 } from "@/features/operator-operations/lib/operator-locale.display";
-import { unwrapApiResult } from "@/features/operator-operations/lib/operator-operations.helpers";
 import type { OperatorContext } from "@/features/operator-operations/models/operator-operations.types";
+import {
+	postLotRateWithOffline,
+	postParkingGateWithOffline,
+	postParkingLotWithOffline,
+	postSelectGateWithOffline,
+	postSelectLotWithOffline,
+} from "@/features/operator-operations/sync/operator.actions";
+import {
+	clearAllOperatorDataForUser,
+	clearLastActiveUserId,
+} from "@/features/operator-operations/sync/operator.store";
 import { cn } from "@/lib/utils";
 import { authClient } from "@/server/better-auth/client";
-import { eden } from "@/server/eden";
 
 interface SettingsTabProps {
 	operatorContext: OperatorContext;
 	selectedLotId: string | null;
 	onSelectLot: (lotId: string) => void;
+	userId: string;
 }
 
 const fieldTriggerClass =
@@ -75,6 +86,7 @@ export function SettingsTab({
 	operatorContext,
 	selectedLotId,
 	onSelectLot,
+	userId,
 }: SettingsTabProps) {
 	const queryClient = useQueryClient();
 	const activeLot =
@@ -103,10 +115,17 @@ export function SettingsTab({
 	}, [activeLot]);
 
 	const selectLotMutation = useMutation({
-		mutationFn: async (parkingLotId: string) =>
-			unwrapApiResult<OperatorContext>(
-				await eden.operator["select-lot"].post({ parkingLotId }),
-			),
+		mutationFn: async (parkingLotId: string) => {
+			const ctx = await postSelectLotWithOffline({
+				operatorContext,
+				parkingLotId,
+				userId,
+			});
+			if (!ctx) {
+				throw new Error("Could not switch lots.");
+			}
+			return ctx;
+		},
 		onSuccess: async (context) => {
 			onSelectLot(context.selectedParkingLotId ?? "");
 			await queryClient.invalidateQueries({ queryKey: ["operator-context"] });
@@ -129,9 +148,16 @@ export function SettingsTab({
 				}
 				payload.baseRate = n;
 			}
-			return unwrapApiResult<OperatorContext>(
-				await eden.operator["parking-lot"].post(payload),
-			);
+			const ctx = await postParkingLotWithOffline({
+				...payload,
+				userId,
+			});
+			if (!ctx) {
+				throw new Error(
+					"Could not add parking lot while offline. Connect and try again.",
+				);
+			}
+			return ctx;
 		},
 		onError: (error) => {
 			toast.danger(
@@ -154,12 +180,17 @@ export function SettingsTab({
 			const trimmed = newGateName.trim();
 			if (trimmed.length < 2)
 				throw new Error("Gate name must be at least 2 characters.");
-			return unwrapApiResult<OperatorContext>(
-				await eden.operator["parking-gate"].post({
-					name: trimmed,
-					parkingLotId: selectedLotId ?? "",
-				}),
-			);
+			const ctx = await postParkingGateWithOffline({
+				name: trimmed,
+				parkingLotId: selectedLotId ?? "",
+				userId,
+			});
+			if (!ctx) {
+				throw new Error(
+					"Could not create gate while offline. Connect and try again.",
+				);
+			}
+			return ctx;
 		},
 		onError: (error) => {
 			toast.danger(
@@ -174,10 +205,17 @@ export function SettingsTab({
 	});
 
 	const selectGateMutation = useMutation({
-		mutationFn: async (parkingGateId: string) =>
-			unwrapApiResult<OperatorContext>(
-				await eden.operator["select-gate"].post({ parkingGateId }),
-			),
+		mutationFn: async (parkingGateId: string) => {
+			const ctx = await postSelectGateWithOffline({
+				operatorContext,
+				parkingGateId,
+				userId,
+			});
+			if (!ctx) {
+				throw new Error("Could not switch gate.");
+			}
+			return ctx;
+		},
 		onSuccess: async () => {
 			await queryClient.invalidateQueries({ queryKey: ["operator-context"] });
 			await queryClient.invalidateQueries({ queryKey: ["operator-sessions"] });
@@ -189,14 +227,14 @@ export function SettingsTab({
 			const rate = Number(currentBaseRate);
 			if (!Number.isFinite(rate) || rate < 0)
 				throw new Error("Base rate must be a valid non-negative number.");
-			return unwrapApiResult<boolean>(
-				await eden.operator["lot-rate"].post({
-					baseRate: rate,
-					countryCode,
-					currencyCode,
-					parkingLotId: selectedLotId ?? "",
-				}),
-			);
+			return postLotRateWithOffline({
+				baseRate: rate,
+				countryCode,
+				currencyCode,
+				operatorContext,
+				parkingLotId: selectedLotId ?? "",
+				userId,
+			});
 		},
 		onSuccess: async () => {
 			await queryClient.invalidateQueries({ queryKey: ["operator-context"] });
@@ -205,6 +243,8 @@ export function SettingsTab({
 
 	const logoutMutation = useMutation({
 		mutationFn: async () => {
+			await clearAllOperatorDataForUser(userId);
+			await clearLastActiveUserId();
 			await authClient.signOut();
 		},
 	});
@@ -413,20 +453,26 @@ export function SettingsTab({
 										<ListBox>
 											{CURRENCY_OPTIONS.map((c) => {
 												const sym = getCurrencySymbol(c.code);
+												const name = currencyOptionDisplayName(c.label);
 												return (
 													<ListBox.Item
 														id={c.code}
 														key={c.code}
-														textValue={`${sym} ${c.label}`}
+														textValue={`${name} (${c.code})`}
 													>
-														<span
-															aria-hidden
-															className="flex h-8 w-10 shrink-0 items-center justify-center rounded-lg bg-accent/15 font-semibold text-accent text-sm tabular-nums"
-														>
-															{sym}
-														</span>
-														<span className="min-w-0 truncate text-start">
-															{c.label}
+														<span className="flex min-w-0 flex-1 items-center gap-2 text-start">
+															<span
+																aria-hidden
+																className="flex h-8 w-10 shrink-0 items-center justify-center rounded-lg bg-accent/15 font-semibold text-accent text-sm tabular-nums"
+															>
+																{sym}
+															</span>
+															<span className="min-w-0 truncate font-medium leading-tight">
+																{name}
+															</span>
+															<span className="shrink-0 font-medium text-accent/70 text-xs tabular-nums">
+																{c.code}
+															</span>
 														</span>
 														<ListBox.ItemIndicator />
 													</ListBox.Item>
@@ -464,17 +510,17 @@ export function SettingsTab({
 														key={c.code}
 														textValue={`${c.name} (${c.code})`}
 													>
-														<span
-															aria-hidden
-															className="flex h-8 w-10 shrink-0 items-center justify-center text-xl leading-none"
-														>
-															{flag}
-														</span>
-														<span className="flex min-w-0 flex-1 flex-col items-start gap-0.5 text-start">
-															<span className="truncate font-medium leading-tight">
+														<span className="flex min-w-0 flex-1 items-center gap-2 text-start">
+															<span
+																aria-hidden
+																className="flex h-8 w-10 shrink-0 items-center justify-center text-xl leading-none"
+															>
+																{flag}
+															</span>
+															<span className="min-w-0 truncate font-medium leading-tight">
 																{c.name}
 															</span>
-															<span className="text-accent/70 text-xs leading-tight">
+															<span className="shrink-0 font-medium text-accent/70 text-xs tabular-nums">
 																{c.code}
 															</span>
 														</span>
@@ -490,9 +536,9 @@ export function SettingsTab({
 							<Separator className="my-6 bg-accent/7" />
 
 							<div className="flex flex-col gap-1.5">
-								<div className="flex gap-3">
+								<div className="flex flex-col gap-3">
 									<TextField
-										className="min-w-0 flex-1"
+										className="w-full min-w-0"
 										name="baseRate"
 										onChange={setCurrentBaseRate}
 										value={currentBaseRate}
@@ -508,7 +554,7 @@ export function SettingsTab({
 										/>
 									</TextField>
 									<Button
-										className="h-12 shrink-0 rounded-xl px-5"
+										className="h-12 w-full rounded-xl px-5"
 										isDisabled={!selectedLotId || setLotRateMutation.isPending}
 										onPress={() => setLotRateMutation.mutate()}
 									>

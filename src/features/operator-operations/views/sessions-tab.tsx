@@ -10,6 +10,7 @@ import {
 	parkingVisitStatusLabel,
 } from "@/features/operator-operations/lib/operator-operations.helpers";
 import type {
+	OperatorContext,
 	ReceiptPreview,
 	SessionLists,
 	SessionSnapshot,
@@ -18,13 +19,15 @@ import { SessionDetailSheet } from "@/features/operator-operations/views/session
 import { cn } from "@/lib/utils";
 
 interface SessionsTabProps {
-	sessions: SessionLists | null;
-	isLoading: boolean;
-	onSelectSession: () => void;
 	baseRate: number;
+	isLoading: boolean;
 	moneyFormat: MoneyFormatOptions;
-	parkingLotName: string;
 	onReceiptReady: (preview: ReceiptPreview, sessionId: string) => void;
+	onSelectSession: () => void;
+	operatorContext: OperatorContext;
+	parkingLotName: string;
+	sessions: SessionLists | null;
+	userId: string;
 }
 
 type SessionFilter = "active" | "recent";
@@ -123,13 +126,15 @@ function SessionRow({
 }
 
 export function SessionsTab({
-	sessions,
-	isLoading,
-	onSelectSession,
 	baseRate,
+	isLoading,
 	moneyFormat,
-	parkingLotName,
 	onReceiptReady,
+	onSelectSession,
+	operatorContext,
+	parkingLotName,
+	sessions,
+	userId,
 }: SessionsTabProps) {
 	const [filter, setFilter] = useState<SessionFilter>("active");
 	const [sheetSession, setSheetSession] = useState<SessionSnapshot | null>(
@@ -225,8 +230,10 @@ export function SessionsTab({
 				}}
 				onReceiptReady={onReceiptReady}
 				open={sheetSession !== null}
+				operatorContext={operatorContext}
 				parkingLotName={parkingLotName}
 				session={sheetSession}
+				userId={userId}
 			/>
 		</div>
 	);

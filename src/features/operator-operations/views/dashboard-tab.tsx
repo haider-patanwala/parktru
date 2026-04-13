@@ -21,21 +21,21 @@ import {
 	formatCurrency,
 	formatDuration,
 	moneyFormatFromLot,
-	unwrapApiResult,
 } from "@/features/operator-operations/lib/operator-operations.helpers";
 import type {
 	OperatorContext,
 	SessionLists,
 } from "@/features/operator-operations/models/operator-operations.types";
-import { eden } from "@/server/eden";
+import { postSelectLotWithOffline } from "@/features/operator-operations/sync/operator.actions";
 import type { TabId } from "./operator-shell";
 
 interface DashboardTabProps {
+	onNavigate: (tab: TabId) => void;
+	onSelectLot: (lotId: string) => void;
 	operatorContext: OperatorContext;
 	selectedLotId: string | null;
-	onSelectLot: (lotId: string) => void;
 	sessions: SessionLists | null;
-	onNavigate: (tab: TabId) => void;
+	userId: string;
 }
 
 function getGreeting() {
@@ -46,11 +46,12 @@ function getGreeting() {
 }
 
 export function DashboardTab({
+	onNavigate,
+	onSelectLot,
 	operatorContext,
 	selectedLotId,
-	onSelectLot,
 	sessions,
-	onNavigate,
+	userId,
 }: DashboardTabProps) {
 	const queryClient = useQueryClient();
 	const activeLot =
@@ -61,10 +62,17 @@ export function DashboardTab({
 	const activeSessions = sessions?.activeSessions ?? [];
 
 	const selectLotMutation = useMutation({
-		mutationFn: async (parkingLotId: string) =>
-			unwrapApiResult<OperatorContext>(
-				await eden.operator["select-lot"].post({ parkingLotId }),
-			),
+		mutationFn: async (parkingLotId: string) => {
+			const ctx = await postSelectLotWithOffline({
+				operatorContext,
+				parkingLotId,
+				userId,
+			});
+			if (!ctx) {
+				throw new Error("Could not switch lots.");
+			}
+			return ctx;
+		},
 		onSuccess: async (context) => {
 			onSelectLot(context.selectedParkingLotId ?? "");
 			await queryClient.invalidateQueries({ queryKey: ["operator-context"] });

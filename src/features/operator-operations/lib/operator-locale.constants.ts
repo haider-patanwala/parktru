@@ -41,6 +41,94 @@ export const COUNTRY_OPTIONS: ReadonlyArray<{ code: string; name: string }> = [
 	{ code: "TR", name: "Türkiye" },
 ];
 
+const COUNTRY_NAME_BY_CODE = new Map(
+	COUNTRY_OPTIONS.map((c) => [c.code, c.name]),
+);
+
+/** Display name for ISO 3166-1 alpha-2, or the raw code if unknown. */
+export function countryNameFromCode(code: string): string {
+	const u = code.trim().toUpperCase();
+	return COUNTRY_NAME_BY_CODE.get(u) ?? code;
+}
+
+/**
+ * Rough global frequency order (citizenship / nationality picks). Only codes
+ * present in {@link COUNTRY_OPTIONS} are used; the rest of that list is appended.
+ */
+const POPULAR_NATIONALITY_CODES_ORDER: readonly string[] = [
+	"US",
+	"IN",
+	"CN",
+	"GB",
+	"DE",
+	"FR",
+	"BR",
+	"MX",
+	"JP",
+	"KR",
+	"PH",
+	"VN",
+	"ID",
+	"TH",
+	"MY",
+	"SG",
+	"AE",
+	"SA",
+	"EG",
+	"NG",
+	"CA",
+	"AU",
+	"NZ",
+	"IE",
+	"HK",
+	"TW",
+	"IT",
+	"ES",
+	"NL",
+	"ZA",
+	"KE",
+	"TR",
+	"PL",
+	"CH",
+	"AT",
+	"SE",
+	"NO",
+	"DK",
+	"BE",
+];
+
+/** Nationality dropdown: popular options first, then remaining countries from settings. */
+export function getNationalitySelectOptions(): ReadonlyArray<{
+	code: string;
+	name: string;
+}> {
+	const byCode = new Map(COUNTRY_OPTIONS.map((c) => [c.code, c]));
+	const seen = new Set<string>();
+	const ordered: { code: string; name: string }[] = [];
+	for (const code of POPULAR_NATIONALITY_CODES_ORDER) {
+		const row = byCode.get(code);
+		if (row && !seen.has(code)) {
+			ordered.push(row);
+			seen.add(code);
+		}
+	}
+	for (const c of COUNTRY_OPTIONS) {
+		if (!seen.has(c.code)) {
+			ordered.push(c);
+		}
+	}
+	return ordered;
+}
+
+/** Default nationality selection for a parking lot’s country (ISO 3166-1 alpha-2). */
+export function defaultNationalityCodeForLotCountry(
+	lotCountryCode: string | undefined,
+): string {
+	const u = (lotCountryCode ?? "IN").trim().toUpperCase();
+	if (COUNTRY_NAME_BY_CODE.has(u)) return u;
+	return "IN";
+}
+
 /** Common ISO 4217 codes for parking / retail */
 export const CURRENCY_OPTIONS: ReadonlyArray<{ code: string; label: string }> =
 	[
@@ -77,3 +165,8 @@ export const CURRENCY_OPTIONS: ReadonlyArray<{ code: string; label: string }> =
 		{ code: "KES", label: "Kenyan Shilling (KES)" },
 		{ code: "EGP", label: "Egyptian Pound (EGP)" },
 	];
+
+/** Strip trailing ` (XXX)` from {@link CURRENCY_OPTIONS} labels for single-line UI. */
+export function currencyOptionDisplayName(label: string): string {
+	return label.replace(/\s*\([A-Z]{3}\)\s*$/, "").trim();
+}

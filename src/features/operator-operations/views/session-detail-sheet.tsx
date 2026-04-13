@@ -10,6 +10,8 @@ import {
 	SheetHeader,
 	SheetTitle,
 } from "@/components/ui/sheet";
+import { countryNameFromCode } from "@/features/operator-operations/lib/operator-locale.constants";
+import { countryCodeToFlagEmoji } from "@/features/operator-operations/lib/operator-locale.display";
 import {
 	buildWhatsappUrlForSession,
 	formatCurrency,
@@ -19,31 +21,36 @@ import {
 	parkingVisitStatusLabel,
 } from "@/features/operator-operations/lib/operator-operations.helpers";
 import type {
+	OperatorContext,
 	ReceiptPreview,
 	SessionSnapshot,
 } from "@/features/operator-operations/models/operator-operations.types";
 import { SessionExitPanel } from "@/features/operator-operations/views/session-exit-panel";
 
 interface SessionDetailSheetProps {
-	session: SessionSnapshot | null;
-	open: boolean;
-	onOpenChange: (open: boolean) => void;
-	parkingLotName: string;
 	baseRate: number;
 	moneyFormat: MoneyFormatOptions;
 	onEdit: () => void;
+	onOpenChange: (open: boolean) => void;
 	onReceiptReady: (preview: ReceiptPreview, sessionId: string) => void;
+	open: boolean;
+	operatorContext: OperatorContext;
+	parkingLotName: string;
+	session: SessionSnapshot | null;
+	userId: string;
 }
 
 export function SessionDetailSheet({
-	session,
-	open,
-	onOpenChange,
-	parkingLotName,
 	baseRate,
 	moneyFormat,
 	onEdit,
+	onOpenChange,
 	onReceiptReady,
+	open,
+	operatorContext,
+	parkingLotName,
+	session,
+	userId,
 }: SessionDetailSheetProps) {
 	const shareWhatsapp = () => {
 		if (!session) return;
@@ -136,6 +143,22 @@ export function SessionDetailSheet({
 							<p className='mt-0.5 font-mono text-muted-foreground text-sm'>
 								{session.customerPhone || "—"}
 							</p>
+							{session.nationalityCode ? (
+								<p className='mt-2 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-sm'>
+									<span className='shrink-0 text-muted-foreground text-xs'>
+										Nationality
+									</span>
+									<span aria-hidden className='shrink-0 text-lg leading-none'>
+										{countryCodeToFlagEmoji(session.nationalityCode)}
+									</span>
+									<span className='min-w-0 truncate font-medium text-foreground'>
+										{countryNameFromCode(session.nationalityCode)}
+									</span>
+									<span className='shrink-0 font-mono text-muted-foreground text-xs tabular-nums'>
+										{session.nationalityCode}
+									</span>
+								</p>
+							) : null}
 						</div>
 
 						<div className='flex flex-col gap-2 sm:flex-row'>
@@ -162,7 +185,9 @@ export function SessionDetailSheet({
 									moneyFormat={moneyFormat}
 									onCancel={() => onOpenChange(false)}
 									onReceiptReady={handleReceipt}
+									operatorContext={operatorContext}
 									session={session}
+									userId={userId}
 								/>
 							</>
 						)}

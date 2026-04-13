@@ -38,6 +38,8 @@ export interface SessionSnapshot {
 	baseRateSnapshot: number;
 	customerName: string;
 	customerPhone: string;
+	/** ISO 3166-1 alpha-2 — absent on legacy cached sessions */
+	nationalityCode?: string;
 	displayPlateNumber: string;
 	entryAt: string;
 	exitAt: string | null;

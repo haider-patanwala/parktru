@@ -11,26 +11,30 @@ import {
 	formatDateTime,
 	formatDuration,
 	type MoneyFormatOptions,
-	unwrapApiResult,
 } from "@/features/operator-operations/lib/operator-operations.helpers";
 import type {
+	OperatorContext,
 	ReceiptPreview,
 	SessionSnapshot,
 } from "@/features/operator-operations/models/operator-operations.types";
-import { eden } from "@/server/eden";
+import { postExitWithOffline } from "@/features/operator-operations/sync/operator.actions";
 
 export function SessionExitPanel({
-	session,
 	baseRate,
 	moneyFormat,
-	onReceiptReady,
 	onCancel,
+	onReceiptReady,
+	operatorContext,
+	session,
+	userId,
 }: {
-	session: SessionSnapshot;
 	baseRate: number;
 	moneyFormat: MoneyFormatOptions;
-	onReceiptReady: (preview: ReceiptPreview, sessionId: string) => void;
 	onCancel: () => void;
+	onReceiptReady: (preview: ReceiptPreview, sessionId: string) => void;
+	operatorContext: OperatorContext;
+	session: SessionSnapshot;
+	userId: string;
 }) {
 	const queryClient = useQueryClient();
 	const [finalAmount, setFinalAmount] = useState(
@@ -50,23 +54,17 @@ export function SessionExitPanel({
 			)
 				throw new Error("Override amount must be valid.");
 
-			return unwrapApiResult<{
-				amount: number;
-				customerName: string;
-				customerPhone: string;
-				entryAt: string;
-				exitAt: string;
-				operatorName: string;
-				parkingLotName: string;
-				plateNumber: string;
-				tenantName: string;
-			}>(
-				await eden.operator.exit.post({
-					finalAmount: amount,
-					overrideAmount: override,
-					parkingSessionId: session.id,
-				}),
-			);
+			const closed = await postExitWithOffline({
+				finalAmount: amount,
+				operatorContext,
+				overrideAmount: override,
+				parkingSessionId: session.id,
+				userId,
+			});
+			if (!closed) {
+				throw new Error("No matching parked vehicle was found.");
+			}
+			return closed;
 		},
 		onError: (error) => {
 			toast.danger(error instanceof Error ? error.message : "Exit failed.", {
