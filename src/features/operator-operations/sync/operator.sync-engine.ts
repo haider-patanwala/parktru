@@ -1,11 +1,11 @@
 import { unwrapApiResult } from "@/features/operator-operations/lib/operator-operations.helpers";
 import {
-	mergeSessionMapping,
-	type OutboxItem,
 	getSyncPaused,
 	loadLastActiveUserId,
 	loadOperatorContext,
 	loadOutbox,
+	mergeSessionMapping,
+	type OutboxItem,
 	replaceOutbox,
 	resolveSessionIdForServer,
 	saveOperatorContext,
@@ -47,14 +47,6 @@ async function processOne(
 	userId: string,
 	item: OutboxItem,
 ): Promise<{ continue: boolean }> {
-	const resolvedPayload = (p: Record<string, unknown>) => {
-		const next = { ...p };
-		if (typeof next.parkingSessionId === "string") {
-			next.parkingSessionId = next.parkingSessionId;
-		}
-		return next;
-	};
-
 	switch (item.kind) {
 		case "bootstrap": {
 			const body = item.payload as {
@@ -138,6 +130,7 @@ async function processOne(
 				customerName: string;
 				customerPhone: string;
 				displayPlateNumber: string;
+				entryAt?: string;
 				nationalityCode?: string;
 				parkingGateId?: string;
 				parkingLotId: string;
@@ -174,11 +167,14 @@ async function processOne(
 			return { continue: true };
 		}
 		case "entry-time": {
-			const body = resolvedPayload(item.payload as Record<string, unknown>) as {
+			const body = item.payload as {
 				entryAt: string;
 				parkingSessionId: string;
 			};
-			const sid = await resolveSessionIdForServer(userId, body.parkingSessionId);
+			const sid = await resolveSessionIdForServer(
+				userId,
+				body.parkingSessionId,
+			);
 			await unwrapApiResult(
 				await eden.operator["entry-time"].post({
 					entryAt: body.entryAt,
@@ -205,7 +201,10 @@ async function processOne(
 				overrideAmount?: number;
 				parkingSessionId: string;
 			};
-			const sid = await resolveSessionIdForServer(userId, body.parkingSessionId);
+			const sid = await resolveSessionIdForServer(
+				userId,
+				body.parkingSessionId,
+			);
 			await unwrapApiResult(
 				await eden.operator.exit.post({
 					finalAmount: body.finalAmount,
@@ -229,7 +228,10 @@ async function processOne(
 		}
 		case "receipt-link": {
 			const body = item.payload as { parkingSessionId: string };
-			const sid = await resolveSessionIdForServer(userId, body.parkingSessionId);
+			const sid = await resolveSessionIdForServer(
+				userId,
+				body.parkingSessionId,
+			);
 			await unwrapApiResult(
 				await eden.operator.receipt.link.post({
 					idempotencyKey: item.idempotencyKey,
@@ -318,12 +320,9 @@ export function startOperatorSyncEngine() {
 		}
 	});
 
-	setInterval(
-		() => {
-			void flushOutboxForActiveUser();
-		},
-		60_000,
-	);
+	setInterval(() => {
+		void flushOutboxForActiveUser();
+	}, 60_000);
 
 	if (typeof BroadcastChannel !== "undefined") {
 		const ch = new BroadcastChannel(CHANNEL_NAME);

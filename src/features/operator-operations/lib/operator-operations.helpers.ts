@@ -75,18 +75,38 @@ export function formatDuration(entryAt: string | Date, exitAt: string | Date) {
 		0,
 		Math.round((end.getTime() - start.getTime()) / 60000),
 	);
-	const hours = Math.floor(totalMinutes / 60);
-	const minutes = totalMinutes % 60;
+	const minutesInHour = 60;
+	const minutesInDay = 24 * minutesInHour;
+	const minutesInWeek = 7 * minutesInDay;
 
-	if (hours === 0) {
-		return `${minutes}m`;
+	if (totalMinutes < minutesInHour) {
+		return `${totalMinutes}m`;
 	}
 
-	if (minutes === 0) {
-		return `${hours}h`;
+	if (totalMinutes < minutesInDay) {
+		const hours = Math.floor(totalMinutes / minutesInHour);
+		const minutes = totalMinutes % minutesInHour;
+		if (minutes === 0) {
+			return `${hours}h`;
+		}
+		return `${hours}h ${minutes}m`;
 	}
 
-	return `${hours}h ${minutes}m`;
+	if (totalMinutes < minutesInWeek) {
+		const days = Math.floor(totalMinutes / minutesInDay);
+		const hours = Math.floor((totalMinutes % minutesInDay) / minutesInHour);
+		if (hours === 0) {
+			return `${days}d`;
+		}
+		return `${days}d ${hours}h`;
+	}
+
+	const weeks = Math.floor(totalMinutes / minutesInWeek);
+	const days = Math.floor((totalMinutes % minutesInWeek) / minutesInDay);
+	if (days === 0) {
+		return `${weeks}w`;
+	}
+	return `${weeks}w ${days}d`;
 }
 
 export function toISOString(value: string | Date): string {

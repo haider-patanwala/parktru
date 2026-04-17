@@ -922,6 +922,7 @@ export async function createParkingEntry(input: {
 	customerName: string;
 	customerPhone: string;
 	displayPlateNumber: string;
+	entryAt?: string;
 	nationalityCode?: string;
 	parkingGateId?: string | null;
 	parkingLotId: string;
@@ -998,6 +999,10 @@ export async function createParkingEntry(input: {
 	})
 		.lean()
 		.exec();
+	const parsedEntryAt = input.entryAt ? new Date(input.entryAt) : new Date();
+	const effectiveEntryAt = Number.isNaN(parsedEntryAt.getTime())
+		? new Date()
+		: parsedEntryAt;
 
 	const created = await ParkingSessionModel.create({
 		baseRateSnapshot: rate?.baseRate ?? 0,
@@ -1006,7 +1011,7 @@ export async function createParkingEntry(input: {
 		customerName: input.customerName.trim(),
 		customerPhone: input.customerPhone.trim(),
 		displayPlateNumber: input.displayPlateNumber.trim(),
-		entryAt: new Date(),
+		entryAt: effectiveEntryAt,
 		nationalityCode: input.nationalityCode?.trim() ?? "",
 		normalizedPlateNumber,
 		parkingGateId: gateResolution.gateOid,

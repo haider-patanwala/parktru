@@ -140,6 +140,7 @@ export async function postEntryWithOffline(input: {
 	customerName: string;
 	customerPhone: string;
 	displayPlateNumber: string;
+	entryAt?: string;
 	nationalityCode: string;
 	operatorContext: OperatorContext;
 	parkingGateId?: string | null;
@@ -192,7 +193,7 @@ export async function postEntryWithOffline(input: {
 		return { created: false, duplicateSession: duplicate };
 	}
 
-	const entryAt = new Date().toISOString();
+	const entryAt = input.entryAt ?? new Date().toISOString();
 	const nat = input.nationalityCode.trim().toUpperCase();
 	const snapshot: SessionSnapshot = {
 		baseRateSnapshot: activeLot?.baseRate ?? 0,
@@ -229,6 +230,7 @@ export async function postEntryWithOffline(input: {
 			customerName: input.customerName,
 			customerPhone: input.customerPhone,
 			displayPlateNumber: input.displayPlateNumber,
+			entryAt,
 			nationalityCode: nat,
 			parkingGateId: input.parkingGateId ?? undefined,
 			parkingLotId: input.parkingLotId,

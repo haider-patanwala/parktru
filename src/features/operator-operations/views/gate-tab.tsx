@@ -4,9 +4,14 @@ import {
 	Calendar,
 	DateField,
 	DatePicker,
+	Button as HeroButton,
+	Input as HeroInput,
+	Select as HeroSelect,
 	Label,
 	ListBox,
-	Select as HeroSelect,
+	Spinner,
+	Tab,
+	Tabs,
 	toast,
 } from "@heroui/react";
 import type { DateValue } from "@internationalized/date";
@@ -63,6 +68,12 @@ import { cn } from "@/lib/utils";
 import { eden } from "@/server/eden";
 
 const NATIONALITY_OPTIONS = getNationalitySelectOptions();
+const DEFAULT_VEHICLE_TYPE = "LMV";
+const VEHICLE_TYPE_OPTIONS = [
+	{ label: "Bike", value: "BIKE" },
+	{ label: "Car (LMV)", value: "LMV" },
+	{ label: "Truck (HMV)", value: "HMV" },
+] as const;
 
 const nationalityFieldTriggerClass =
 	"min-h-12 w-full rounded-xl border border-border/60 bg-secondary px-3 shadow-none ring-0 transition-colors hover:border-border focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/20";
@@ -111,7 +122,7 @@ export function GateTab({
 	const [plateNumber, setPlateNumber] = useState("");
 	const [customerName, setCustomerName] = useState("");
 	const [customerPhone, setCustomerPhone] = useState("");
-	const [vehicleType, setVehicleType] = useState("");
+	const [vehicleType, setVehicleType] = useState<string>(DEFAULT_VEHICLE_TYPE);
 	const [nationalityCode, setNationalityCode] = useState(() =>
 		defaultNationalityCodeForLotCountry(activeLot?.countryCode),
 	);
@@ -119,6 +130,8 @@ export function GateTab({
 		null,
 	);
 	const [isPlateCameraOpen, setIsPlateCameraOpen] = useState(false);
+	const [entryDateTimeDraft, setEntryDateTimeDraft] =
+		useState<DateValue | null>(() => dateNow(getLocalTimeZone()));
 	const [entryTimeDraft, setEntryTimeDraft] = useState<DateValue | null>(null);
 	const [finalAmount, setFinalAmount] = useState("0");
 	const [overrideAmount, setOverrideAmount] = useState("");
@@ -126,7 +139,9 @@ export function GateTab({
 	const currentBaseRate = activeLot?.baseRate ?? 0;
 
 	useEffect(() => {
-		setNationalityCode(defaultNationalityCodeForLotCountry(activeLot?.countryCode));
+		setNationalityCode(
+			defaultNationalityCodeForLotCountry(activeLot?.countryCode),
+		);
 	}, [activeLot?.countryCode]);
 
 	const selectGateMutation = useMutation({
@@ -156,9 +171,12 @@ export function GateTab({
 		setPlateNumber("");
 		setCustomerName("");
 		setCustomerPhone("");
-		setVehicleType("");
-		setNationalityCode(defaultNationalityCodeForLotCountry(activeLot?.countryCode));
+		setVehicleType(DEFAULT_VEHICLE_TYPE);
+		setNationalityCode(
+			defaultNationalityCodeForLotCountry(activeLot?.countryCode),
+		);
 		setLookupResult(null);
+		setEntryDateTimeDraft(dateNow(getLocalTimeZone()));
 		setEntryTimeDraft(null);
 		setFinalAmount("0");
 		setOverrideAmount("");
@@ -212,6 +230,7 @@ export function GateTab({
 				);
 			} else {
 				setMode("entry");
+				setEntryDateTimeDraft(dateNow(getLocalTimeZone()));
 				setFinalAmount(String(currentBaseRate));
 				setOverrideAmount("");
 			}
@@ -224,6 +243,9 @@ export function GateTab({
 				customerName,
 				customerPhone,
 				displayPlateNumber: plateNumber,
+				entryAt:
+					entryDateTimeDraft?.toDate(getLocalTimeZone()).toISOString() ??
+					new Date().toISOString(),
 				nationalityCode,
 				operatorContext,
 				parkingGateId: selectedGateId ?? undefined,
@@ -365,10 +387,10 @@ export function GateTab({
 
 	if (!activeLot) {
 		return (
-			<div className="flex flex-1 flex-col items-center justify-center gap-4 px-6 py-20">
-				<div className="rounded-2xl bg-card p-6 text-center ring-1 ring-border">
-					<p className="font-semibold text-lg">No lot selected</p>
-					<p className="mt-2 text-muted-foreground text-sm">
+			<div className='flex flex-1 flex-col items-center justify-center gap-4 px-6 py-20'>
+				<div className='rounded-2xl bg-card p-6 text-center ring-1 ring-border'>
+					<p className='font-semibold text-lg'>No lot selected</p>
+					<p className='mt-2 text-muted-foreground text-sm'>
 						Select a parking lot from the Home tab to start gate operations.
 					</p>
 				</div>
@@ -377,7 +399,7 @@ export function GateTab({
 	}
 
 	return (
-		<div className="safe-top flex flex-col gap-4 px-5 pt-6 pb-4">
+		<div className='safe-top flex flex-col gap-4 px-5 pt-6 pb-4'>
 			<PlateCameraSheet
 				onConfirm={setPlateNumber}
 				onOpenChange={setIsPlateCameraOpen}
@@ -385,15 +407,17 @@ export function GateTab({
 			/>
 
 			{/* Header */}
-			<div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-				<div className="min-w-0 flex-1">
-					<p className="font-medium text-muted-foreground text-xs uppercase tracking-wider">
-						{activeLot.name}
-					</p>
-					<h1 className="mt-1 font-bold text-2xl tracking-tight">Gate</h1>
+			<div className='flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between'>
+				<div className='min-w-0 flex-1'>
+					<div className='flex items-baseline gap-3'>
+						<h1 className='mt-1 font-bold text-2xl tracking-tight'>Gate</h1>
+						<p className='font-medium text-muted-foreground text-xs uppercase tracking-wider'>
+							{activeLot.name}
+						</p>
+					</div>
 					{gates.length > 1 ? (
-						<div className="mt-3 max-w-md">
-							<p className="mb-1.5 font-medium text-muted-foreground text-xs uppercase tracking-wider">
+						<div className='mt-3 max-w-md'>
+							<p className='mb-1.5 font-medium text-muted-foreground text-xs uppercase tracking-wider'>
 								Gate lane
 							</p>
 							<Select
@@ -402,13 +426,11 @@ export function GateTab({
 									if (!value) return;
 									selectGateMutation.mutate(value);
 								}}
-								value={selectedGateId ?? undefined}
-							>
+								value={selectedGateId ?? undefined}>
 								<SelectTrigger
-									className="h-11 w-full rounded-xl bg-secondary px-3"
-									size="default"
-								>
-									<SelectValue placeholder="Select gate">
+									className='h-11 w-full rounded-xl bg-white px-3'
+									size='default'>
+									<SelectValue placeholder='Select gate'>
 										{activeGate?.name}
 									</SelectValue>
 								</SelectTrigger>
@@ -418,8 +440,7 @@ export function GateTab({
 											<SelectItem
 												key={gate.id}
 												label={gate.name}
-												value={gate.id}
-											>
+												value={gate.id}>
 												{gate.name}
 											</SelectItem>
 										))}
@@ -428,52 +449,55 @@ export function GateTab({
 							</Select>
 						</div>
 					) : activeGate ? (
-						<p className="mt-2 text-muted-foreground text-sm">
-							Lane: <span className="text-foreground">{activeGate.name}</span>
+						<p className='mt-2 text-muted-foreground text-sm'>
+							Lane: <span className='text-foreground'>{activeGate.name}</span>
 						</p>
 					) : null}
 				</div>
-				<Badge className="shrink-0 self-start rounded-lg" variant="outline">
-					{formatCurrency(currentBaseRate, lotMoneyFormat)} / entry
+				<Badge
+					className='shrink-0 self-start rounded-lg'
+					variant='outline'>
+					{formatCurrency(currentBaseRate, lotMoneyFormat)} / hr
 				</Badge>
 			</div>
 
 			{/* Search bar */}
-			<div className="rounded-2xl bg-card p-4 ring-1 ring-border">
-				<div className="flex gap-2">
+			<div className='rounded-2xl bg-card p-4 ring-1 ring-border'>
+				<div className='grid grid-cols-[1fr_auto_auto] gap-2'>
 					<Input
-						className="h-14 flex-1 rounded-xl bg-secondary px-4 font-mono text-lg uppercase tracking-widest"
+						className='h-14 min-w-0 rounded-xl bg-secondary px-4 font-mono text-lg uppercase tracking-widest'
 						onChange={(event) => setPlateNumber(event.target.value)}
-						placeholder="MH12AB1234"
+						placeholder='MH12AB1234'
 						value={plateNumber}
 					/>
 					<Button
-						aria-label="Scan vehicle plate"
-						className="h-14 rounded-xl px-4"
+						aria-label='Scan vehicle plate'
+						className='h-14 rounded-xl px-4 sm:w-auto'
 						onClick={() => setIsPlateCameraOpen(true)}
-						type="button"
-						variant="outline"
-					>
+						type='button'
+						variant='outline'>
 						<svg
-							aria-hidden="true"
-							className="size-5"
-							fill="none"
-							stroke="currentColor"
-							strokeLinecap="round"
-							strokeLinejoin="round"
-							strokeWidth="1.8"
-							viewBox="0 0 24 24"
-						>
-							<path d="M4 8a2 2 0 012-2h2l1.2-1.4A2 2 0 0110.74 4h2.52a2 2 0 011.54.6L16 6h2a2 2 0 012 2v8a2 2 0 01-2 2H6a2 2 0 01-2-2z" />
-							<circle cx="12" cy="13" r="3.5" />
+							aria-hidden='true'
+							className='size-5'
+							fill='none'
+							stroke='currentColor'
+							strokeLinecap='round'
+							strokeLinejoin='round'
+							strokeWidth='1.8'
+							viewBox='0 0 24 24'>
+							<path d='M4 8a2 2 0 012-2h2l1.2-1.4A2 2 0 0110.74 4h2.52a2 2 0 011.54.6L16 6h2a2 2 0 012 2v8a2 2 0 01-2 2H6a2 2 0 01-2-2z' />
+							<circle
+								cx='12'
+								cy='13'
+								r='3.5'
+							/>
 						</svg>
 					</Button>
 					<Button
-						className="h-14 rounded-xl px-5 text-base"
+						className='h-14 rounded-xl px-5 text-base sm:w-auto'
 						disabled={!plateNumber.trim() || lookupMutation.isPending}
 						onClick={() => lookupMutation.mutate()}
-						type="button"
-					>
+						type='button'>
 						{lookupMutation.isPending ? "..." : "Find"}
 					</Button>
 				</div>
@@ -481,17 +505,17 @@ export function GateTab({
 
 			{/* Duplicate warning */}
 			{mode === "duplicate" && activeSession && (
-				<div className="rounded-2xl bg-warning/10 p-4 ring-1 ring-warning/20">
-					<div className="mb-3 flex items-center gap-2">
-						<span className="size-2 rounded-full bg-warning" />
-						<p className="font-semibold text-sm text-warning-foreground">
+				<div className='rounded-2xl bg-warning/10 p-4 ring-1 ring-warning/20'>
+					<div className='mb-3 flex items-center gap-2'>
+						<span className='size-2 rounded-full bg-warning' />
+						<p className='font-semibold text-sm text-warning-foreground'>
 							Vehicle already parked
 						</p>
 					</div>
-					<p className="font-bold font-mono text-xl tracking-wider">
+					<p className='font-bold font-mono text-xl tracking-wider'>
 						{activeSession.displayPlateNumber}
 					</p>
-					<p className="mt-1 text-muted-foreground text-sm">
+					<p className='mt-1 text-muted-foreground text-sm'>
 						Entered{" "}
 						{formatDateTime(activeSession.entryAt, lotMoneyFormat.countryCode)}{" "}
 						at {activeSession.parkingLotName}
@@ -500,16 +524,15 @@ export function GateTab({
 							: ""}
 					</p>
 
-					<div className="mt-4">
+					<div className='mt-4'>
 						<DatePicker
-							className="w-full"
-							granularity="minute"
+							className='w-full'
+							granularity='minute'
 							hideTimeZone
 							hourCycle={24}
 							maxValue={dateNow(getLocalTimeZone())}
 							onChange={setEntryTimeDraft}
-							value={entryTimeDraft}
-						>
+							value={entryTimeDraft}>
 							<Label>Correct entry time</Label>
 							<DateField.Group>
 								<DateField.Input>
@@ -522,11 +545,11 @@ export function GateTab({
 								</DateField.Suffix>
 							</DateField.Group>
 							<DatePicker.Popover>
-								<Calendar aria-label="Select entry date">
+								<Calendar aria-label='Select entry date'>
 									<Calendar.Header>
 										<Calendar.Heading />
-										<Calendar.NavButton slot="previous" />
-										<Calendar.NavButton slot="next" />
+										<Calendar.NavButton slot='previous' />
+										<Calendar.NavButton slot='next' />
 									</Calendar.Header>
 									<Calendar.Grid>
 										<Calendar.GridHeader>
@@ -543,9 +566,9 @@ export function GateTab({
 						</DatePicker>
 					</div>
 
-					<div className="mt-4 flex gap-2">
+					<div className='mt-4 flex gap-2'>
 						<Button
-							className="h-12 flex-1 rounded-xl text-base"
+							className='h-12 flex-1 rounded-xl text-base'
 							onClick={() => {
 								setMode("exit");
 								setFinalAmount(
@@ -557,16 +580,14 @@ export function GateTab({
 									),
 								);
 							}}
-							type="button"
-						>
+							type='button'>
 							Process exit
 						</Button>
 						<Button
-							className="h-12 rounded-xl"
+							className='h-12 rounded-xl'
 							onClick={() => updateEntryTimeMutation.mutate()}
-							type="button"
-							variant="outline"
-						>
+							type='button'
+							variant='outline'>
 							{updateEntryTimeMutation.isPending ? "..." : "Fix time"}
 						</Button>
 					</div>
@@ -575,106 +596,104 @@ export function GateTab({
 
 			{/* Exit flow */}
 			{mode === "exit" && activeSession && (
-				<div className="rounded-2xl bg-card p-4 ring-1 ring-border">
-					<div className="mb-4 flex items-center justify-between">
+				<div className='rounded-2xl bg-card p-4 ring-1 ring-border'>
+					<div className='mb-4 flex items-center justify-between'>
 						<div>
-							<p className="font-medium text-muted-foreground text-xs uppercase tracking-wider">
+							<p className='font-medium text-muted-foreground text-xs uppercase tracking-wider'>
 								Exit checkout
 							</p>
-							<p className="mt-1 font-bold font-mono text-xl tracking-wider">
+							<p className='mt-1 font-bold font-mono text-xl tracking-wider'>
 								{activeSession.displayPlateNumber}
 							</p>
 						</div>
-						<Badge className="rounded-lg text-sm" variant="secondary">
+						<Badge
+							className='rounded-lg text-sm'
+							variant='secondary'>
 							{formatDuration(activeSession.entryAt, new Date())}
 						</Badge>
 					</div>
 
-					<div className="mb-4 grid grid-cols-3 gap-2">
-						<div className="rounded-xl bg-secondary p-3">
-							<p className="font-medium text-[0.65rem] text-muted-foreground uppercase">
+					<div className='mb-4 grid grid-cols-3 gap-2'>
+						<div className='rounded-xl bg-secondary p-3'>
+							<p className='font-medium text-[0.65rem] text-muted-foreground uppercase'>
 								Entered
 							</p>
-							<p className="mt-1 font-medium text-xs">
+							<p className='mt-1 font-medium text-xs'>
 								{formatDateTime(
 									activeSession.entryAt,
 									lotMoneyFormat.countryCode,
 								)}
 							</p>
 						</div>
-						<div className="rounded-xl bg-secondary p-3">
-							<p className="font-medium text-[0.65rem] text-muted-foreground uppercase">
+						<div className='rounded-xl bg-secondary p-3'>
+							<p className='font-medium text-[0.65rem] text-muted-foreground uppercase'>
 								Customer
 							</p>
-							<p className="mt-1 font-medium text-xs">
+							<p className='mt-1 font-medium text-xs'>
 								{activeSession.customerPhone || "N/A"}
 							</p>
 						</div>
-						<div className="rounded-xl bg-secondary p-3">
-							<p className="font-medium text-[0.65rem] text-muted-foreground uppercase">
+						<div className='rounded-xl bg-secondary p-3'>
+							<p className='font-medium text-[0.65rem] text-muted-foreground uppercase'>
 								Base rate
 							</p>
-							<p className="mt-1 font-medium text-xs">
+							<p className='mt-1 font-medium text-xs'>
 								{formatCurrency(activeSession.baseRateSnapshot, lotMoneyFormat)}
 							</p>
 						</div>
 					</div>
 
-					<Separator className="my-4" />
+					<Separator className='my-4' />
 
-					<div className="grid grid-cols-2 gap-3">
+					<div className='grid grid-cols-2 gap-3'>
 						<div>
 							<label
-								className="mb-1.5 block font-medium text-muted-foreground text-xs uppercase tracking-wider"
-								htmlFor="final-amount"
-							>
+								className='mb-1.5 block font-medium text-muted-foreground text-xs uppercase tracking-wider'
+								htmlFor='final-amount'>
 								Final amount
 							</label>
 							<Input
-								className="h-12 rounded-xl bg-secondary px-4 text-base"
-								id="final-amount"
-								min="0"
+								className='h-12 rounded-xl bg-secondary px-4 text-base'
+								id='final-amount'
+								min='0'
 								onChange={(event) => setFinalAmount(event.target.value)}
-								step="1"
-								type="number"
+								step='1'
+								type='number'
 								value={finalAmount}
 							/>
 						</div>
 						<div>
 							<label
-								className="mb-1.5 block font-medium text-muted-foreground text-xs uppercase tracking-wider"
-								htmlFor="override-amount"
-							>
+								className='mb-1.5 block font-medium text-muted-foreground text-xs uppercase tracking-wider'
+								htmlFor='override-amount'>
 								Override
 							</label>
 							<Input
-								className="h-12 rounded-xl bg-secondary px-4 text-base"
-								id="override-amount"
-								min="0"
+								className='h-12 rounded-xl bg-secondary px-4 text-base'
+								id='override-amount'
+								min='0'
 								onChange={(event) => setOverrideAmount(event.target.value)}
-								placeholder="Optional"
-								step="1"
-								type="number"
+								placeholder='Optional'
+								step='1'
+								type='number'
 								value={overrideAmount}
 							/>
 						</div>
 					</div>
 
-					<div className="mt-4 flex gap-2">
+					<div className='mt-4 flex gap-2'>
 						<Button
-							className="h-13 flex-1 rounded-xl font-semibold text-base"
+							className='h-13 flex-1 rounded-xl font-semibold text-base'
 							disabled={closeExitMutation.isPending}
 							onClick={() => closeExitMutation.mutate()}
-							type="button"
-						>
+							type='button'>
 							{closeExitMutation.isPending ? "Closing..." : "Close exit"}
 						</Button>
 						<Button
-							className="h-13 rounded-xl"
+							className='h-13 rounded-xl'
 							onClick={() => setMode("duplicate")}
-							type="button"
-							variant="outline"
-						>
+							type='button'
+							variant='outline'>
 							Back
 						</Button>
 					</div>
@@ -683,82 +702,58 @@ export function GateTab({
 
 			{/* Entry form */}
 			{(mode === "search" || mode === "entry") && (
-				<div className="rounded-2xl bg-card p-4 ring-1 ring-border">
-					<p className="mb-4 font-medium text-muted-foreground text-xs uppercase tracking-wider">
-						Vehicle entry
-					</p>
-
-					<div className="flex flex-col gap-3">
-						<div>
-							<label
-								className="mb-1.5 block font-medium text-muted-foreground text-xs uppercase tracking-wider"
-								htmlFor="plate-display"
-							>
-								Plate number
-							</label>
-							<Input
-								className="h-13 rounded-xl bg-secondary px-4 font-mono text-base uppercase tracking-widest"
-								id="plate-display"
-								onChange={(event) => setPlateNumber(event.target.value)}
-								placeholder="MH12AB1234"
-								value={plateNumber}
-							/>
-						</div>
-
-						<div className="grid grid-cols-2 gap-3">
-							<div>
+				<div className='rounded-2xl bg-card p-4 ring-1 ring-border'>
+					<div className='flex flex-col gap-3'>
+						<div className='grid grid-cols-1 gap-3 sm:grid-cols-2'>
+							<div className='min-w-0'>
 								<label
-									className="mb-1.5 block font-medium text-muted-foreground text-xs uppercase tracking-wider"
-									htmlFor="customer-name"
-								>
+									className='mb-1.5 block font-medium text-muted-foreground text-xs uppercase tracking-wider'
+									htmlFor='customer-name'>
 									Name
 								</label>
-								<Input
-									className="h-12 rounded-xl bg-secondary px-4 text-base"
-									id="customer-name"
+								<HeroInput
+									className='h-12 w-full min-w-0 rounded-xl bg-secondary text-base'
+									id='customer-name'
 									onChange={(event) => setCustomerName(event.target.value)}
-									placeholder="Customer name"
+									placeholder='Customer name'
 									value={customerName}
 								/>
 							</div>
-							<div>
+							<div className='min-w-0'>
 								<label
-									className="mb-1.5 block font-medium text-muted-foreground text-xs uppercase tracking-wider"
-									htmlFor="customer-phone"
-								>
+									className='mb-1.5 block font-medium text-muted-foreground text-xs uppercase tracking-wider'
+									htmlFor='customer-phone'>
 									Phone
 								</label>
-								<Input
-									className="h-12 rounded-xl bg-secondary px-4 text-base"
-									id="customer-phone"
+								<HeroInput
+									className='h-12 w-full min-w-0 rounded-xl bg-secondary text-base'
+									id='customer-phone'
 									onChange={(event) => setCustomerPhone(event.target.value)}
-									placeholder="9876543210"
+									placeholder='9876543210'
 									required
-									type="tel"
+									type='tel'
 									value={customerPhone}
 								/>
 							</div>
 						</div>
 
 						<HeroSelect
-							className="w-full min-w-0"
+							className='w-full min-w-0'
 							onChange={(key) => {
 								if (key == null) return;
 								setNationalityCode(String(key));
 							}}
-							placeholder="Nationality"
-							value={nationalityCode}
-						>
-							<Label className="mb-1.5 font-medium text-muted-foreground text-xs uppercase tracking-wider">
+							placeholder='Nationality'
+							value={nationalityCode}>
+							<Label className='mb-1.5 font-medium text-muted-foreground text-xs uppercase tracking-wider'>
 								Nationality
 							</Label>
 							<HeroSelect.Trigger
-								className={cn(nationalityFieldTriggerClass, "min-w-0 px-3")}
-							>
+								className={cn(nationalityFieldTriggerClass, "min-w-0 px-3")}>
 								<HeroSelect.Value />
 								<HeroSelect.Indicator />
 							</HeroSelect.Trigger>
-							<HeroSelect.Popover className="max-h-[min(24rem,70vh)]">
+							<HeroSelect.Popover className='max-h-[min(24rem,70vh)]'>
 								<ListBox>
 									{NATIONALITY_OPTIONS.map((c) => {
 										const flag = countryCodeToFlagEmoji(c.code);
@@ -766,19 +761,17 @@ export function GateTab({
 											<ListBox.Item
 												id={c.code}
 												key={c.code}
-												textValue={`${c.name} (${c.code})`}
-											>
-												<span className="flex min-w-0 flex-1 items-center gap-2 text-start">
+												textValue={`${c.name} (${c.code})`}>
+												<span className='flex min-w-0 flex-1 items-center gap-2 text-start'>
 													<span
 														aria-hidden
-														className="flex h-8 w-10 shrink-0 items-center justify-center text-xl leading-none"
-													>
+														className='flex h-8 w-10 shrink-0 items-center justify-center text-xl leading-none'>
 														{flag}
 													</span>
-													<span className="min-w-0 truncate font-medium leading-tight">
+													<span className='min-w-0 truncate font-medium leading-tight'>
 														{c.name}
 													</span>
-													<span className="shrink-0 font-medium text-muted-foreground text-xs tabular-nums">
+													<span className='shrink-0 font-medium text-muted-foreground text-xs tabular-nums'>
 														{c.code}
 													</span>
 												</span>
@@ -790,49 +783,181 @@ export function GateTab({
 							</HeroSelect.Popover>
 						</HeroSelect>
 
+						<DatePicker
+							className='w-full min-w-0'
+							granularity='minute'
+							hideTimeZone
+							hourCycle={24}
+							maxValue={dateNow(getLocalTimeZone())}
+							onChange={setEntryDateTimeDraft}
+							value={entryDateTimeDraft}>
+							<Label>Entry date and time</Label>
+							<DateField.Group className='w-full min-w-0'>
+								<DateField.Input className='w-full min-w-0'>
+									{(segment) => <DateField.Segment segment={segment} />}
+								</DateField.Input>
+								<DateField.Suffix>
+									<DatePicker.Trigger>
+										<DatePicker.TriggerIndicator />
+									</DatePicker.Trigger>
+								</DateField.Suffix>
+							</DateField.Group>
+							<DatePicker.Popover>
+								<Calendar aria-label='Select entry date and time'>
+									<Calendar.Header>
+										<Calendar.Heading />
+										<Calendar.NavButton slot='previous' />
+										<Calendar.NavButton slot='next' />
+									</Calendar.Header>
+									<Calendar.Grid>
+										<Calendar.GridHeader>
+											{(day) => (
+												<Calendar.HeaderCell>{day}</Calendar.HeaderCell>
+											)}
+										</Calendar.GridHeader>
+										<Calendar.GridBody>
+											{(date) => <Calendar.Cell date={date} />}
+										</Calendar.GridBody>
+									</Calendar.Grid>
+								</Calendar>
+							</DatePicker.Popover>
+						</DatePicker>
+
 						<div>
-							<label
-								className="mb-1.5 block font-medium text-muted-foreground text-xs uppercase tracking-wider"
-								htmlFor="vehicle-type"
-							>
+							<p className='mb-1.5 block font-medium text-muted-foreground text-xs uppercase tracking-wider'>
 								Vehicle type
-							</label>
-							<Input
-								className="h-12 rounded-xl bg-secondary px-4 text-base"
-								id="vehicle-type"
-								onChange={(event) => setVehicleType(event.target.value)}
-								placeholder="Car, Bike, etc."
-								value={vehicleType}
-							/>
+							</p>
+							<Tabs
+								className='w-full'
+								onSelectionChange={(key) => setVehicleType(String(key))}
+								selectedKey={vehicleType}>
+								<Tabs.ListContainer className='w-full rounded-xl bg-secondary p-1'>
+									<Tabs.List className='grid h-12 w-full grid-cols-3 gap-1'>
+										{VEHICLE_TYPE_OPTIONS.map((option) => (
+											<Tab
+												className='h-10 gap-1 rounded-lg border border-transparent px-2 text-foreground/70 text-xs transition-colors aria-selected:bg-primary aria-selected:text-primary-foreground aria-selected:ring-1 aria-selected:ring-primary/30 data-[selected]:bg-primary data-[selected]:text-primary-foreground data-[selected]:shadow-sm data-[selected]:ring-1 data-[selected]:ring-primary/30 sm:text-sm'
+												id={option.value}
+												key={option.value}>
+												<span aria-hidden>
+													{option.value === "BIKE" && (
+														<svg
+															aria-hidden='true'
+															className='size-4'
+															fill='none'
+															focusable='false'
+															stroke='currentColor'
+															strokeLinecap='round'
+															strokeLinejoin='round'
+															strokeWidth='1.8'
+															viewBox='0 0 24 24'>
+															<circle
+																cx='6'
+																cy='17'
+																r='3'
+															/>
+															<circle
+																cx='18'
+																cy='17'
+																r='3'
+															/>
+															<path d='M6 17h4l4-6h3' />
+															<path d='M10 11 8 7H5' />
+															<path d='M14 11h3' />
+														</svg>
+													)}
+													{option.value === "LMV" && (
+														<svg
+															aria-hidden='true'
+															className='size-4'
+															fill='none'
+															focusable='false'
+															stroke='currentColor'
+															strokeLinecap='round'
+															strokeLinejoin='round'
+															strokeWidth='1.8'
+															viewBox='0 0 24 24'>
+															<path d='M3 13h18v4a2 2 0 0 1-2 2h-1' />
+															<path d='M3 17a2 2 0 0 0 2 2h1' />
+															<path d='M5 13l2-5h10l2 5' />
+															<circle
+																cx='8'
+																cy='18'
+																r='1.8'
+															/>
+															<circle
+																cx='16'
+																cy='18'
+																r='1.8'
+															/>
+														</svg>
+													)}
+													{option.value === "HMV" && (
+														<svg
+															aria-hidden='true'
+															className='size-4'
+															fill='none'
+															focusable='false'
+															stroke='currentColor'
+															strokeLinecap='round'
+															strokeLinejoin='round'
+															strokeWidth='1.8'
+															viewBox='0 0 24 24'>
+															<path d='M2 10h11v7H2z' />
+															<path d='M13 12h4l2 2v3h-6z' />
+															<circle
+																cx='6'
+																cy='18'
+																r='1.8'
+															/>
+															<circle
+																cx='16'
+																cy='18'
+																r='1.8'
+															/>
+															<circle
+																cx='20'
+																cy='18'
+																r='1.8'
+															/>
+														</svg>
+													)}
+												</span>
+												<span className='truncate'>{option.label}</span>
+											</Tab>
+										))}
+									</Tabs.List>
+								</Tabs.ListContainer>
+							</Tabs>
 						</div>
 
-						<Button
-							className="mt-1 h-14 rounded-xl font-semibold text-base"
-							disabled={
+						<HeroButton
+							className='mt-1 h-14 rounded-xl font-semibold text-base'
+							fullWidth
+							isDisabled={
 								createEntryMutation.isPending ||
 								!selectedLotId ||
 								!selectedGateId ||
 								!plateNumber.trim() ||
 								!customerPhone.trim()
 							}
-							onClick={() => createEntryMutation.mutate()}
-							size="lg"
-							type="button"
-						>
-							{createEntryMutation.isPending
-								? "Creating entry..."
-								: "Create entry"}
-						</Button>
+							isPending={createEntryMutation.isPending}
+							onPress={() => createEntryMutation.mutate()}
+							type='button'>
+							{createEntryMutation.isPending ? (
+								<Spinner size='sm' />
+							) : (
+								"Create entry"
+							)}
+						</HeroButton>
 
 						{mode === "entry" && lookupResult && (
-							<Button
-								className="h-10 rounded-xl"
-								onClick={resetForm}
-								type="button"
-								variant="ghost"
-							>
+							<HeroButton
+								className='h-10 rounded-xl'
+								onPress={resetForm}
+								type='button'
+								variant='tertiary'>
 								Clear & start over
-							</Button>
+							</HeroButton>
 						)}
 					</div>
 				</div>

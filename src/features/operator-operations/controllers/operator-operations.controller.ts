@@ -631,6 +631,7 @@ export const operatorOperationsController = new Elysia({
 						customerName: body.customerName,
 						customerPhone: body.customerPhone,
 						displayPlateNumber: body.displayPlateNumber,
+						entryAt: body.entryAt,
 						nationalityCode: body.nationalityCode,
 						parkingGateId: body.parkingGateId,
 						parkingLotId: body.parkingLotId,
@@ -655,6 +656,7 @@ export const operatorOperationsController = new Elysia({
 				/** Match operator UI + offline outbox (short codes, empty walk-ins). */
 				customerPhone: t.String({ default: "" }),
 				displayPlateNumber: t.String({ minLength: 1 }),
+				entryAt: t.Optional(t.String()),
 				idempotencyKey: t.Optional(t.String()),
 				/** ISO 3166-1 alpha-2 */
 				nationalityCode: t.Optional(t.String()),
