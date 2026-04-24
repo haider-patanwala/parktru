@@ -2,6 +2,7 @@ import { type Model, model, models, Schema, type Types } from "mongoose";
 
 export interface ParkingSessionDocument {
 	baseRateSnapshot: number;
+	rateMode: "hourly" | "session";
 	clientMutationId: string | null;
 	closedBy: string | null;
 	createdAt: Date;
@@ -32,6 +33,11 @@ const parkingSessionSchema = new Schema(
 			min: 0,
 			required: true,
 			type: Number,
+		},
+		rateMode: {
+			default: "hourly",
+			enum: ["hourly", "session"],
+			type: String,
 		},
 		clientMutationId: {
 			default: null,

@@ -19,6 +19,7 @@ import {
 	setParkingLotBaseRate,
 	setSelectedParkingGateForUser,
 	setSelectedParkingLotForUser,
+	updateParkingEntryRate,
 	updateParkingEntryTime,
 } from "@/features/operator-operations/models/operator-operations.repository";
 import type {
@@ -635,6 +636,8 @@ export const operatorOperationsController = new Elysia({
 						nationalityCode: body.nationalityCode,
 						parkingGateId: body.parkingGateId,
 						parkingLotId: body.parkingLotId,
+						rateAmount: body.rateAmount,
+						rateMode: body.rateMode,
 						tenantId,
 						userId: user.id,
 						vehicleType: body.vehicleType,
@@ -662,6 +665,10 @@ export const operatorOperationsController = new Elysia({
 				nationalityCode: t.Optional(t.String()),
 				parkingGateId: t.Optional(t.String()),
 				parkingLotId: t.String(),
+				rateAmount: t.Optional(t.Numeric({ minimum: 0 })),
+				rateMode: t.Optional(
+					t.Union([t.Literal("hourly"), t.Literal("session")]),
+				),
 				vehicleType: t.Optional(t.String()),
 			}),
 		},
@@ -716,6 +723,61 @@ export const operatorOperationsController = new Elysia({
 		{
 			body: t.Object({
 				entryAt: t.String(),
+				idempotencyKey: t.Optional(t.String()),
+				parkingSessionId: t.String(),
+			}),
+		},
+	)
+	.post(
+		"/entry-rate",
+		async ({ body, request, set }) => {
+			const user = await getAuthenticatedUser(request);
+
+			if (!user) {
+				set.status = 401;
+				return failure("Sign in before editing parking amount.");
+			}
+
+			const context = await getOperatorContextForUser({
+				email: user.email,
+				id: user.id,
+				name: user.name,
+				role: "role" in user ? user.role : null,
+			});
+
+			if (!context.tenant) {
+				set.status = 409;
+				return failure(
+					"Create an operator workspace before editing parking records.",
+				);
+			}
+
+			const tenantId = context.tenant.id;
+
+			const updated = await withIdempotency({
+				key: body.idempotencyKey,
+				route: "POST /operator/entry-rate",
+				run: () =>
+					updateParkingEntryRate({
+						amount: body.amount,
+						parkingSessionId: body.parkingSessionId,
+						tenantId,
+						userId: user.id,
+					}),
+				shouldCache: (doc) => doc !== null,
+				userId: user.id,
+			});
+
+			if (!updated) {
+				set.status = 404;
+				return failure("No matching parked vehicle was found.");
+			}
+
+			return success(true);
+		},
+		{
+			body: t.Object({
+				amount: t.Numeric({ minimum: 0 }),
 				idempotencyKey: t.Optional(t.String()),
 				parkingSessionId: t.String(),
 			}),

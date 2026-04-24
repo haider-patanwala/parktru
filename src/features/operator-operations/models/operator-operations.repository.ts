@@ -177,6 +177,7 @@ function mapSessionSnapshot(
 	session: {
 		_id: Types.ObjectId;
 		baseRateSnapshot: number;
+		rateMode?: "hourly" | "session";
 		customerName: string;
 		customerPhone: string;
 		displayPlateNumber: string;
@@ -199,6 +200,7 @@ function mapSessionSnapshot(
 
 	return {
 		baseRateSnapshot: session.baseRateSnapshot,
+		rateMode: session.rateMode === "session" ? "session" : "hourly",
 		customerName: session.customerName ?? "",
 		customerPhone: session.customerPhone ?? "",
 		nationalityCode: session.nationalityCode?.trim() ?? "",
@@ -926,6 +928,8 @@ export async function createParkingEntry(input: {
 	nationalityCode?: string;
 	parkingGateId?: string | null;
 	parkingLotId: string;
+	rateAmount?: number;
+	rateMode?: "hourly" | "session";
 	tenantId: string;
 	userId: string;
 	vehicleType?: string;
@@ -999,13 +1003,20 @@ export async function createParkingEntry(input: {
 	})
 		.lean()
 		.exec();
+	const resolvedRateAmount =
+		typeof input.rateAmount === "number" &&
+		Number.isFinite(input.rateAmount) &&
+		input.rateAmount >= 0
+			? input.rateAmount
+			: (rate?.baseRate ?? 0);
+	const resolvedRateMode = input.rateMode === "session" ? "session" : "hourly";
 	const parsedEntryAt = input.entryAt ? new Date(input.entryAt) : new Date();
 	const effectiveEntryAt = Number.isNaN(parsedEntryAt.getTime())
 		? new Date()
 		: parsedEntryAt;
 
 	const created = await ParkingSessionModel.create({
-		baseRateSnapshot: rate?.baseRate ?? 0,
+		baseRateSnapshot: resolvedRateAmount,
 		clientMutationId: trimmedClientId || null,
 		createdBy: input.userId,
 		customerName: input.customerName.trim(),
@@ -1016,6 +1027,7 @@ export async function createParkingEntry(input: {
 		normalizedPlateNumber,
 		parkingGateId: gateResolution.gateOid,
 		parkingLotId: toObjectId(input.parkingLotId),
+		rateMode: resolvedRateMode,
 		tenantId: toObjectId(input.tenantId),
 		updatedBy: input.userId,
 		vehicleType: input.vehicleType?.trim() ?? "",
@@ -1051,6 +1063,31 @@ export async function updateParkingEntryTime(input: {
 	}
 
 	session.entryAt = new Date(input.entryAt);
+	session.updatedBy = input.userId;
+	await session.save();
+
+	return session;
+}
+
+export async function updateParkingEntryRate(input: {
+	amount: number;
+	parkingSessionId: string;
+	tenantId: string;
+	userId: string;
+}) {
+	await ensureConnected();
+
+	const session = await findParkingSessionScoped({
+		parkingSessionId: input.parkingSessionId,
+		status: "active",
+		tenantId: input.tenantId,
+	});
+
+	if (!session) {
+		return null;
+	}
+
+	session.baseRateSnapshot = input.amount;
 	session.updatedBy = input.userId;
 	await session.save();
 

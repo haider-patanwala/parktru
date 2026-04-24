@@ -147,10 +147,6 @@ export function OperatorOperationsPage() {
 		},
 	});
 
-	const handleSelectSession = () => {
-		setActiveTab("gate");
-	};
-
 	const handleReceiptReady = (preview: ReceiptPreview, sessionId: string) => {
 		setReceiptPreview(preview);
 		setReceiptSessionId(sessionId);
@@ -202,6 +198,7 @@ export function OperatorOperationsPage() {
 				{activeTab === "home" && (
 					<DashboardTab
 						onNavigate={setActiveTab}
+						onReceiptReady={handleReceiptReady}
 						onSelectLot={setSelectedLotId}
 						operatorContext={operatorContext}
 						selectedLotId={selectedLotId}
@@ -225,7 +222,6 @@ export function OperatorOperationsPage() {
 						isLoading={sessionsQuery.isPending}
 						moneyFormat={moneyFormatFromLot(selectedLotSummary)}
 						onReceiptReady={handleReceiptReady}
-						onSelectSession={handleSelectSession}
 						operatorContext={operatorContext}
 						parkingLotName={selectedLotSummary?.name ?? "Parking lot"}
 						sessions={sessionsQuery.data ?? null}
@@ -235,7 +231,6 @@ export function OperatorOperationsPage() {
 
 				{activeTab === "reports" && (
 					<ReportsTab
-						onNavigateToGate={() => setActiveTab("gate")}
 						onReceiptReady={handleReceiptReady}
 						onSelectLot={setSelectedLotId}
 						operatorContext={operatorContext}

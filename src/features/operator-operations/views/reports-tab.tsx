@@ -61,7 +61,6 @@ import { eden } from "@/server/eden";
 
 interface ReportsTabProps {
 	operatorContext: OperatorContext;
-	onNavigateToGate: () => void;
 	onReceiptReady: (preview: ReceiptPreview, sessionId: string) => void;
 	onSelectLot: (lotId: string) => void;
 	selectedLotId: string | null;
@@ -251,7 +250,6 @@ function SessionRow({
 
 export function ReportsTab({
 	operatorContext,
-	onNavigateToGate,
 	onReceiptReady,
 	onSelectLot,
 	selectedLotId,
@@ -928,7 +926,6 @@ export function ReportsTab({
 			<SessionDetailSheet
 				baseRate={activeLot?.baseRate ?? 0}
 				moneyFormat={lotMoneyFormat}
-				onEdit={onNavigateToGate}
 				onOpenChange={(open) => {
 					if (!open) setSheetSession(null);
 				}}

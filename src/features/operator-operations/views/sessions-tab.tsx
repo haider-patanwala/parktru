@@ -23,7 +23,6 @@ interface SessionsTabProps {
 	isLoading: boolean;
 	moneyFormat: MoneyFormatOptions;
 	onReceiptReady: (preview: ReceiptPreview, sessionId: string) => void;
-	onSelectSession: () => void;
 	operatorContext: OperatorContext;
 	parkingLotName: string;
 	sessions: SessionLists | null;
@@ -130,7 +129,6 @@ export function SessionsTab({
 	isLoading,
 	moneyFormat,
 	onReceiptReady,
-	onSelectSession,
 	operatorContext,
 	parkingLotName,
 	sessions,
@@ -209,9 +207,7 @@ export function SessionsTab({
 			) : (
 				<div className="flex flex-col items-center justify-center rounded-2xl bg-card px-6 py-12 text-center ring-1 ring-border">
 					<p className="font-medium text-muted-foreground">
-						{filter === "active"
-							? "No vehicles on lot"
-							: "No recent exits yet"}
+						{filter === "active" ? "No vehicles on lot" : "No recent exits yet"}
 					</p>
 					<p className="mt-1 text-muted-foreground/60 text-xs">
 						{filter === "active"
@@ -224,7 +220,6 @@ export function SessionsTab({
 			<SessionDetailSheet
 				baseRate={baseRate}
 				moneyFormat={moneyFormat}
-				onEdit={onSelectSession}
 				onOpenChange={(open) => {
 					if (!open) setSheetSession(null);
 				}}

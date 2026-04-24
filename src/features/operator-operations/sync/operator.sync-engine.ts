@@ -134,6 +134,8 @@ async function processOne(
 				nationalityCode?: string;
 				parkingGateId?: string;
 				parkingLotId: string;
+				rateAmount?: number;
+				rateMode?: "hourly" | "session";
 				vehicleType?: string;
 			};
 			const result = await unwrapApiResult(
@@ -178,6 +180,35 @@ async function processOne(
 			await unwrapApiResult(
 				await eden.operator["entry-time"].post({
 					entryAt: body.entryAt,
+					idempotencyKey: item.idempotencyKey,
+					parkingSessionId: sid,
+				}),
+			);
+			const ctx = await loadOperatorContext(userId);
+			const lotId =
+				ctx?.selectedParkingLotId ?? ctx?.allowedLots[0]?.id ?? null;
+			if (lotId) {
+				const lists = unwrapApiResult(
+					await eden.operator.sessions.get({
+						query: { parkingLotId: lotId },
+					}),
+				);
+				await saveSessionLists(userId, lotId, lists);
+			}
+			return { continue: true };
+		}
+		case "entry-rate": {
+			const body = item.payload as {
+				amount: number;
+				parkingSessionId: string;
+			};
+			const sid = await resolveSessionIdForServer(
+				userId,
+				body.parkingSessionId,
+			);
+			await unwrapApiResult(
+				await eden.operator["entry-rate"].post({
+					amount: body.amount,
 					idempotencyKey: item.idempotencyKey,
 					parkingSessionId: sid,
 				}),

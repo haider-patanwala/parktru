@@ -145,6 +145,8 @@ export async function postEntryWithOffline(input: {
 	operatorContext: OperatorContext;
 	parkingGateId?: string | null;
 	parkingLotId: string;
+	rateAmount?: number;
+	rateMode?: "hourly" | "session";
 	userId: string;
 	vehicleType?: string;
 }): Promise<{
@@ -195,8 +197,15 @@ export async function postEntryWithOffline(input: {
 
 	const entryAt = input.entryAt ?? new Date().toISOString();
 	const nat = input.nationalityCode.trim().toUpperCase();
+	const resolvedRateAmount =
+		typeof input.rateAmount === "number" &&
+		Number.isFinite(input.rateAmount) &&
+		input.rateAmount >= 0
+			? input.rateAmount
+			: (activeLot?.baseRate ?? 0);
+	const resolvedRateMode = input.rateMode === "session" ? "session" : "hourly";
 	const snapshot: SessionSnapshot = {
-		baseRateSnapshot: activeLot?.baseRate ?? 0,
+		baseRateSnapshot: resolvedRateAmount,
 		customerName: input.customerName.trim(),
 		customerPhone: input.customerPhone.trim(),
 		nationalityCode: nat,
@@ -210,6 +219,7 @@ export async function postEntryWithOffline(input: {
 		parkingGateName: gate?.name ?? null,
 		parkingLotId: input.parkingLotId,
 		parkingLotName: activeLot?.name ?? "Parking lot",
+		rateMode: resolvedRateMode,
 		status: "active",
 	};
 
@@ -234,6 +244,8 @@ export async function postEntryWithOffline(input: {
 			nationalityCode: nat,
 			parkingGateId: input.parkingGateId ?? undefined,
 			parkingLotId: input.parkingLotId,
+			rateAmount: resolvedRateAmount,
+			rateMode: resolvedRateMode,
 			vehicleType: input.vehicleType,
 		},
 	};
@@ -413,6 +425,58 @@ export async function postEntryTimeWithOffline(input: {
 		kind: "entry-time",
 		payload: {
 			entryAt: input.entryAt,
+			parkingSessionId: input.parkingSessionId,
+		},
+	};
+	await enqueueOutbox(input.userId, item);
+	kickOperatorSync();
+	return true;
+}
+
+export async function postEntryRateWithOffline(input: {
+	amount: number;
+	parkingLotId: string;
+	parkingSessionId: string;
+	userId: string;
+}): Promise<boolean> {
+	const idempotencyKey = newIdempotencyKey();
+
+	const online = await tryPost(async () =>
+		unwrapApiResult(
+			await eden.operator["entry-rate"].post({
+				amount: input.amount,
+				idempotencyKey,
+				parkingSessionId: input.parkingSessionId,
+			}),
+		),
+	);
+
+	if (online) {
+		return true;
+	}
+
+	const lists = (await loadSessionLists(input.userId, input.parkingLotId)) ?? {
+		activeSessions: [],
+		recentSessions: [],
+	};
+	const patch = (s: SessionSnapshot): SessionSnapshot =>
+		s.id === input.parkingSessionId
+			? { ...s, baseRateSnapshot: input.amount }
+			: s;
+
+	await saveSessionLists(input.userId, input.parkingLotId, {
+		activeSessions: lists.activeSessions.map(patch),
+		recentSessions: lists.recentSessions.map(patch),
+	});
+
+	const item: OutboxItem = {
+		attempts: 0,
+		createdAt: Date.now(),
+		id: newCommandId(),
+		idempotencyKey,
+		kind: "entry-rate",
+		payload: {
+			amount: input.amount,
 			parkingSessionId: input.parkingSessionId,
 		},
 	};

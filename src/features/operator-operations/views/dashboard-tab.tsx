@@ -9,6 +9,7 @@ import {
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
 import {
 	Select,
 	SelectContent,
@@ -24,13 +25,17 @@ import {
 } from "@/features/operator-operations/lib/operator-operations.helpers";
 import type {
 	OperatorContext,
+	ReceiptPreview,
 	SessionLists,
+	SessionSnapshot,
 } from "@/features/operator-operations/models/operator-operations.types";
 import { postSelectLotWithOffline } from "@/features/operator-operations/sync/operator.actions";
+import { SessionDetailSheet } from "@/features/operator-operations/views/session-detail-sheet";
 import type { TabId } from "./operator-shell";
 
 interface DashboardTabProps {
 	onNavigate: (tab: TabId) => void;
+	onReceiptReady: (preview: ReceiptPreview, sessionId: string) => void;
 	onSelectLot: (lotId: string) => void;
 	operatorContext: OperatorContext;
 	selectedLotId: string | null;
@@ -47,6 +52,7 @@ function getGreeting() {
 
 export function DashboardTab({
 	onNavigate,
+	onReceiptReady,
 	onSelectLot,
 	operatorContext,
 	selectedLotId,
@@ -60,6 +66,9 @@ export function DashboardTab({
 	const activeCount = sessions?.activeSessions.length ?? 0;
 	const recentCount = sessions?.recentSessions.length ?? 0;
 	const activeSessions = sessions?.activeSessions ?? [];
+	const [sheetSession, setSheetSession] = useState<SessionSnapshot | null>(
+		null,
+	);
 
 	const selectLotMutation = useMutation({
 		mutationFn: async (parkingLotId: string) => {
@@ -237,9 +246,11 @@ export function DashboardTab({
 
 					<div className="flex flex-col gap-2">
 						{activeSessions.slice(0, 3).map((session) => (
-							<div
-								className="flex items-center gap-3 rounded-2xl bg-card px-4 py-3 ring-1 ring-border"
+							<button
+								className="flex items-center gap-3 rounded-2xl bg-card px-4 py-3 text-left ring-1 ring-border transition-transform active:scale-[0.98]"
 								key={session.id}
+								onClick={() => setSheetSession(session)}
+								type="button"
 							>
 								<div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 font-bold font-mono text-primary text-xs">
 									{session.displayPlateNumber.slice(-4)}
@@ -248,16 +259,21 @@ export function DashboardTab({
 									<p className="truncate font-mono font-semibold text-sm tracking-wider">
 										{session.displayPlateNumber}
 									</p>
-									<p className="text-muted-foreground text-xs">
-										{session.customerName || session.customerPhone || "Walk-in"}
+									<p className="truncate text-muted-foreground text-xs">
+										{session.customerName || "No name"}
 									</p>
+									{session.customerPhone ? (
+										<p className="truncate text-[0.65rem] text-muted-foreground/80">
+											{session.customerPhone}
+										</p>
+									) : null}
 								</div>
 								<div className="shrink-0 text-right">
 									<p className="font-medium text-primary text-sm">
 										{formatDuration(session.entryAt, new Date())}
 									</p>
 								</div>
-							</div>
+							</button>
 						))}
 
 						{activeSessions.length > 3 && (
@@ -290,6 +306,20 @@ export function DashboardTab({
 					</p>
 				</div>
 			)}
+
+			<SessionDetailSheet
+				baseRate={activeLot?.baseRate ?? 0}
+				moneyFormat={lotMoneyFormat}
+				onOpenChange={(open) => {
+					if (!open) setSheetSession(null);
+				}}
+				onReceiptReady={onReceiptReady}
+				open={sheetSession !== null}
+				operatorContext={operatorContext}
+				parkingLotName={activeLot?.name ?? "Parking lot"}
+				session={sheetSession}
+				userId={userId}
+			/>
 		</div>
 	);
 }

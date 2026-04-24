@@ -36,6 +36,7 @@ export interface OperatorContext {
 
 export interface SessionSnapshot {
 	baseRateSnapshot: number;
+	rateMode?: "hourly" | "session";
 	customerName: string;
 	customerPhone: string;
 	/** ISO 3166-1 alpha-2 — absent on legacy cached sessions */
