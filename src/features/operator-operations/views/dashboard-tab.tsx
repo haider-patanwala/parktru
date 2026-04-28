@@ -20,7 +20,6 @@ import {
 } from "@/components/ui/select";
 import {
 	formatCurrency,
-	formatDuration,
 	moneyFormatFromLot,
 } from "@/features/operator-operations/lib/operator-operations.helpers";
 import type {
@@ -30,6 +29,7 @@ import type {
 	SessionSnapshot,
 } from "@/features/operator-operations/models/operator-operations.types";
 import { postSelectLotWithOffline } from "@/features/operator-operations/sync/operator.actions";
+import { LiveActivityItem } from "@/features/operator-operations/views/live-activity-item";
 import { SessionDetailSheet } from "@/features/operator-operations/views/session-detail-sheet";
 import type { TabId } from "./operator-shell";
 
@@ -246,34 +246,12 @@ export function DashboardTab({
 
 					<div className="flex flex-col gap-2">
 						{activeSessions.slice(0, 3).map((session) => (
-							<button
-								className="flex items-center gap-3 rounded-2xl bg-card px-4 py-3 text-left ring-1 ring-border transition-transform active:scale-[0.98]"
+							<LiveActivityItem
 								key={session.id}
+								moneyFormat={lotMoneyFormat}
 								onClick={() => setSheetSession(session)}
-								type="button"
-							>
-								<div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 font-bold font-mono text-primary text-xs">
-									{session.displayPlateNumber.slice(-4)}
-								</div>
-								<div className="min-w-0 flex-1">
-									<p className="truncate font-mono font-semibold text-sm tracking-wider">
-										{session.displayPlateNumber}
-									</p>
-									<p className="truncate text-muted-foreground text-xs">
-										{session.customerName || "No name"}
-									</p>
-									{session.customerPhone ? (
-										<p className="truncate text-[0.65rem] text-muted-foreground/80">
-											{session.customerPhone}
-										</p>
-									) : null}
-								</div>
-								<div className="shrink-0 text-right">
-									<p className="font-medium text-primary text-sm">
-										{formatDuration(session.entryAt, new Date())}
-									</p>
-								</div>
-							</button>
+								session={session}
+							/>
 						))}
 
 						{activeSessions.length > 3 && (

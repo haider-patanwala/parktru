@@ -2,6 +2,7 @@
 
 import { toast } from "@heroui/react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import Image from "next/image";
 import { useEffect, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -14,13 +15,12 @@ import {
 	SheetHeader,
 	SheetTitle,
 } from "@/components/ui/sheet";
-import { countryNameFromCode } from "@/features/operator-operations/lib/operator-locale.constants";
-import { countryCodeToFlagEmoji } from "@/features/operator-operations/lib/operator-locale.display";
 import {
 	buildWhatsappUrlForSession,
 	formatCurrency,
 	formatDateTime,
 	formatDuration,
+	toDatetimeLocalValue,
 	type MoneyFormatOptions,
 	parkingVisitStatusLabel,
 } from "@/features/operator-operations/lib/operator-operations.helpers";
@@ -29,7 +29,10 @@ import type {
 	ReceiptPreview,
 	SessionSnapshot,
 } from "@/features/operator-operations/models/operator-operations.types";
-import { postEntryRateWithOffline } from "@/features/operator-operations/sync/operator.actions";
+import {
+	postEntryRateWithOffline,
+	postReceiptLinkWithOffline,
+} from "@/features/operator-operations/sync/operator.actions";
 import { SessionExitPanel } from "@/features/operator-operations/views/session-exit-panel";
 
 interface SessionDetailSheetProps {
@@ -42,6 +45,7 @@ interface SessionDetailSheetProps {
 	parkingLotName: string;
 	session: SessionSnapshot | null;
 	userId: string;
+	onViewCustomerHistory?: (customerPhone: string, customerName?: string) => void;
 }
 
 export function SessionDetailSheet({
@@ -54,10 +58,14 @@ export function SessionDetailSheet({
 	parkingLotName,
 	session,
 	userId,
+	onViewCustomerHistory,
 }: SessionDetailSheetProps) {
 	const queryClient = useQueryClient();
 	const [editableAmount, setEditableAmount] = useState("");
 	const [activeAmount, setActiveAmount] = useState<number>(0);
+	const [editableCustomerName, setEditableCustomerName] = useState("");
+	const [editableCustomerPhone, setEditableCustomerPhone] = useState("");
+
 
 	useEffect(() => {
 		if (!session || session.status !== "active") return;
@@ -67,20 +75,57 @@ export function SessionDetailSheet({
 		setEditableAmount(String(currentAmount));
 	}, [baseRate, session]);
 
-	const shareWhatsapp = () => {
+	useEffect(() => {
 		if (!session) return;
-		const url = buildWhatsappUrlForSession(
-			session,
-			parkingLotName,
-			moneyFormat,
-		);
-		window.open(url, "_blank", "noopener,noreferrer");
-	};
+		setEditableCustomerName(session.customerName ?? "");
+		setEditableCustomerPhone(session.customerPhone ?? "");
+	}, [session]);
+
+	const shareWhatsappMutation = useMutation({
+		mutationFn: async () => {
+			if (!session) return;
+			const sessionForShare: SessionSnapshot = {
+				...session,
+				customerName: editableCustomerName.trim(),
+				customerPhone: editableCustomerPhone.trim(),
+			};
+			const receipt = await postReceiptLinkWithOffline({
+				operatorContext,
+				parkingSessionId: session.id,
+				userId,
+			});
+			if (!receipt?.sharePath) {
+				throw new Error("Public ticket link is unavailable for this session.");
+			}
+			const ticketUrl = `${window.location.origin}${receipt.sharePath}`;
+			const ticketNumber =
+				receipt.receiptNumber || `PK-${session.id.slice(-6).toUpperCase()}`;
+			return buildWhatsappUrlForSession(
+				sessionForShare,
+				parkingLotName,
+				moneyFormat,
+				ticketUrl,
+				ticketNumber,
+			);
+		},
+		onError: (error) => {
+			toast.danger(
+				error instanceof Error ? error.message : "Unable to prepare WhatsApp share.",
+				{ timeout: 2200 },
+			);
+		},
+		onSuccess: (url) => {
+			if (!url) return;
+			window.open(url, "_blank", "noopener,noreferrer");
+		},
+	});
+
 
 	const handleReceipt = (preview: ReceiptPreview, sessionId: string) => {
 		onOpenChange(false);
 		onReceiptReady(preview, sessionId);
 	};
+
 
 	const updateAmountMutation = useMutation({
 		mutationFn: async () => {
@@ -136,147 +181,158 @@ export function SessionDetailSheet({
 	return (
 		<Sheet onOpenChange={onOpenChange} open={open}>
 			<SheetContent
-				className="z-[60] max-h-[min(92dvh,800px)] gap-0 overflow-y-auto rounded-t-[1.75rem] border-0 bg-white p-0 pt-2 sm:max-w-lg dark:bg-background"
+				className="z-[60] h-[92dvh] max-h-[92dvh] gap-0 overflow-hidden rounded-t-[1.75rem] border-0 bg-white p-0 pt-2 sm:max-w-lg dark:bg-background"
 				overlayClassName="z-[60]"
 				showCloseButton
 				side="bottom"
 			>
 				{session && (
-					<div className="flex flex-col gap-4 px-4 pt-2 pb-6">
+					<div className="flex h-full flex-col gap-3 px-4 pt-2 pb-4">
 						<SheetHeader className="space-y-1 px-0 text-start">
-							<SheetTitle className="font-mono text-xl tracking-wide">
-								{session.displayPlateNumber}
-							</SheetTitle>
-							<SheetDescription className="text-start text-muted-foreground text-sm">
-								Parking details · {parkingLotName}
-							</SheetDescription>
+							<div className="flex items-start justify-between gap-3">
+								<div>
+									<SheetTitle className="font-mono text-xl tracking-wide">
+										{session.displayPlateNumber}
+									</SheetTitle>
+									<SheetDescription className="text-start text-muted-foreground text-xs">
+										{parkingLotName}
+									</SheetDescription>
+								</div>
+								<Badge
+									variant={session.status === "active" ? "default" : "secondary"}
+								>
+									{parkingVisitStatusLabel(session.status)}
+								</Badge>
+							</div>
 						</SheetHeader>
 
-						<div className="flex flex-wrap items-center gap-2">
-							<Badge
-								variant={session.status === "active" ? "default" : "secondary"}
-							>
-								{parkingVisitStatusLabel(session.status)}
-							</Badge>
-							{session.parkingGateName ? (
-								<span className="text-muted-foreground text-xs">
-									{session.parkingGateName}
-								</span>
-							) : null}
-						</div>
-
-						<div className="grid grid-cols-2 gap-3 text-sm">
-							<div className="rounded-2xl bg-white px-3 py-3 ring-1 ring-border/60 dark:bg-card">
-								<p className="text-muted-foreground text-xs">Entry</p>
+						<div className="grid grid-cols-2 gap-2 text-xs">
+							<div className="rounded-xl bg-white px-3 py-2 ring-1 ring-border/60 dark:bg-card">
+								<p className="text-muted-foreground">Gate</p>
 								<p className="mt-1 font-medium leading-snug">
-									{formatDateTime(session.entryAt, moneyFormat.countryCode)}
+									{session.parkingGateName || "—"}
 								</p>
 							</div>
-							<div className="rounded-2xl bg-white px-3 py-3 ring-1 ring-border/60 dark:bg-card">
-								<p className="text-muted-foreground text-xs">Exit</p>
-								<p className="mt-1 font-medium leading-snug">
-									{session.exitAt
-										? formatDateTime(session.exitAt, moneyFormat.countryCode)
-										: "—"}
-								</p>
-							</div>
-							<div className="rounded-2xl bg-white px-3 py-3 ring-1 ring-border/60 dark:bg-card">
-								<p className="text-muted-foreground text-xs">Duration</p>
-								<p className="mt-1 font-medium">
+							<div className="rounded-xl bg-white px-3 py-2 ring-1 ring-border/60 dark:bg-card">
+								<p className="text-muted-foreground">Duration</p>
+								<p className="mt-1 font-semibold text-sm">
 									{session.exitAt
 										? formatDuration(session.entryAt, session.exitAt)
 										: formatDuration(session.entryAt, new Date())}
 								</p>
 							</div>
-							<div className="rounded-2xl bg-white px-3 py-3 ring-1 ring-border/60 dark:bg-card">
-								<p className="text-muted-foreground text-xs">Amount</p>
-								<p className="mt-1 font-semibold tabular-nums">
-									{session.status === "closed"
-										? session.finalAmount != null
-											? formatCurrency(session.finalAmount, moneyFormat)
-											: "—"
-										: formatCurrency(activeAmount, moneyFormat)}
-								</p>
-								{session.status === "active" ? (
-									<>
-										<p className="mt-0.5 text-[0.65rem] text-muted-foreground">
-											{session.rateMode === "session"
-												? "Per-session rate"
-												: "Hourly rate"}
-										</p>
-										<div className="mt-2.5 flex items-end gap-2">
-											<div className="min-w-0 flex-1">
-												<Input
-													className="h-10 rounded-xl bg-secondary px-3"
-													min="0"
-													onChange={(event) =>
-														setEditableAmount(event.target.value)
-													}
-													step="1"
-													type="number"
-													value={editableAmount}
-												/>
-											</div>
-											<Button
-												className="h-10 rounded-xl px-3.5"
-												disabled={updateAmountMutation.isPending}
-												onClick={() => updateAmountMutation.mutate()}
-												type="button"
-												variant="outline"
-											>
-												{updateAmountMutation.isPending ? "Saving..." : "Save"}
-											</Button>
-										</div>
-									</>
-								) : null}
+						</div>
+
+						<div className="rounded-xl bg-white px-3 py-2 ring-1 ring-border/60 dark:bg-card">
+							<p className="mb-1 text-muted-foreground text-xs">Entry</p>
+							<p className="mt-1 font-medium leading-snug">
+								{formatDateTime(session.entryAt, moneyFormat.countryCode)}
+							</p>
+						</div>
+
+						{session.status === "active" ? (
+							<div className="rounded-xl bg-white px-3 py-2 ring-1 ring-border/60 dark:bg-card">
+								<div className="mb-1.5 flex items-center justify-between">
+									<p className="text-muted-foreground text-xs">Hourly rate</p>
+								</div>
+								<div className="flex items-end gap-2">
+									<div className="relative flex-1">
+										<span className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-muted-foreground text-xs align-sub">
+											{moneyFormat.currencyCode}
+										</span>
+										<Input
+											className="h-10 rounded-xl bg-secondary pr-3 pl-14"
+											inputMode="decimal"
+											min="0"
+											onChange={(event) => setEditableAmount(event.target.value)}
+											step="0.01"
+											type="number"
+											value={editableAmount}
+										/>
+									</div>
+								</div>
+							</div>
+						) : null}
+
+						<div className="grid grid-cols-2 gap-2 text-xs">
+							<div className="rounded-xl bg-white px-3 py-2 ring-1 ring-border/60 dark:bg-card">
+								<p className="text-muted-foreground">Customer name</p>
+								<Input
+									className="mt-1 h-10 rounded-xl bg-secondary px-3"
+									onChange={(event) => setEditableCustomerName(event.target.value)}
+									placeholder="Customer name"
+									type="text"
+									value={editableCustomerName}
+								/>
+							</div>
+							<div className="rounded-xl bg-white px-3 py-2 ring-1 ring-border/60 dark:bg-card">
+								<p className="text-muted-foreground">Customer number</p>
+								<Input
+									className="mt-1 h-10 rounded-xl bg-secondary px-3 font-mono"
+									onChange={(event) => setEditableCustomerPhone(event.target.value)}
+									placeholder="9876543210"
+									type="tel"
+									value={editableCustomerPhone}
+								/>
 							</div>
 						</div>
 
-						<div className="rounded-2xl bg-white px-3 py-3 ring-1 ring-border/60 dark:bg-card">
-							<p className="text-muted-foreground text-xs">Customer</p>
-							<p className="mt-1 font-medium">{session.customerName || "—"}</p>
-							<p className="mt-0.5 font-mono text-muted-foreground text-sm">
-								{session.customerPhone || "—"}
-							</p>
-							{session.nationalityCode ? (
-								<p className="mt-2 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-sm">
-									<span className="shrink-0 text-muted-foreground text-xs">
-										Nationality
-									</span>
-									<span aria-hidden className="shrink-0 text-lg leading-none">
-										{countryCodeToFlagEmoji(session.nationalityCode)}
-									</span>
-									<span className="min-w-0 truncate font-medium text-foreground">
-										{countryNameFromCode(session.nationalityCode)}
-									</span>
-									<span className="shrink-0 font-mono text-muted-foreground text-xs tabular-nums">
-										{session.nationalityCode}
-									</span>
-								</p>
+						<div className="mt-auto flex gap-2">
+							{onViewCustomerHistory ? (
+								<Button
+									className="h-12 rounded-xl px-4 font-semibold"
+									onClick={() =>
+										onViewCustomerHistory(
+											editableCustomerPhone.trim(),
+											editableCustomerName.trim(),
+										)
+									}
+									type="button"
+									variant="outline"
+								>
+									History
+								</Button>
 							) : null}
-						</div>
-
-						<div className="flex flex-col gap-2 sm:flex-row">
 							<Button
-								className="h-18 flex-1 rounded-xl py-3 font-semibold"
-								onClick={shareWhatsapp}
+								className="h-12 flex-1 rounded-xl font-semibold inline-flex items-center justify-center gap-2"
+								disabled={shareWhatsappMutation.isPending}
+								onClick={() => shareWhatsappMutation.mutate()}
 								type="button"
 							>
-								Share on WhatsApp
+								<Image
+									alt="WhatsApp"
+									height={22}
+									src="/whatsapp.svg"
+									width={22}
+								/>
+								Share
 							</Button>
+							{session.status === "active" ? (
+								<Button
+									className="h-12 rounded-xl px-5 font-semibold"
+									disabled={updateAmountMutation.isPending}
+									onClick={() => updateAmountMutation.mutate()}
+									type="button"
+									variant="outline"
+								>
+									{updateAmountMutation.isPending ? "Saving..." : "Save"}
+								</Button>
+							) : null}
 						</div>
 
 						{session.status === "active" && (
 							<>
 								<Separator />
-								<SessionExitPanel
-									baseRate={baseRate}
-									moneyFormat={moneyFormat}
-									onReceiptReady={handleReceipt}
-									operatorContext={operatorContext}
-									session={{ ...session, baseRateSnapshot: activeAmount }}
-									userId={userId}
-								/>
+								<div className="max-h-[34dvh] overflow-y-auto pr-1">
+									<SessionExitPanel
+										baseRate={baseRate}
+										moneyFormat={moneyFormat}
+										onReceiptReady={handleReceipt}
+										operatorContext={operatorContext}
+										session={{ ...session, baseRateSnapshot: activeAmount }}
+										userId={userId}
+									/>
+								</div>
 							</>
 						)}
 					</div>

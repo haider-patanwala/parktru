@@ -1,6 +1,7 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
+import { useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import {
 	moneyFormatFromLot,
@@ -31,6 +32,7 @@ import { SessionsTab } from "./sessions-tab";
 import { SettingsTab } from "./settings-tab";
 import { SetupScreen } from "./setup-screen";
 import { useOperatorAuth } from "./use-operator-auth";
+import { ReportDetailPage } from "./report-detail-page";
 
 const NETWORK_TIMEOUT_MS = 12_000;
 
@@ -46,14 +48,38 @@ function withNetworkTimeout<T>(promise: Promise<T>): Promise<T> {
 	]);
 }
 
-export function OperatorOperationsPage() {
+interface OperatorOperationsPageProps {
+	initialActiveTab?: TabId;
+	embeddedReportDetail?: {
+		backTo?: string;
+		kind: "owner" | "vehicle";
+		selectedLotId: string;
+		value: string;
+	};
+}
+
+export function OperatorOperationsPage({
+	initialActiveTab = "home",
+	embeddedReportDetail,
+}: OperatorOperationsPageProps = {}) {
 	const sessionState = useOperatorAuth();
-	const [activeTab, setActiveTab] = useState<TabId>("home");
+	const searchParams = useSearchParams();
+	const tabFromUrl = searchParams.get("tab");
+	const initialTabFromUrl: TabId =
+		tabFromUrl === "home" ||
+		tabFromUrl === "gate" ||
+		tabFromUrl === "sessions" ||
+		tabFromUrl === "reports" ||
+		tabFromUrl === "settings"
+			? tabFromUrl
+			: initialActiveTab;
+	const [activeTab, setActiveTab] = useState<TabId>(initialTabFromUrl);
 	const [selectedLotId, setSelectedLotId] = useState<string | null>(null);
 	const [receiptPreview, setReceiptPreview] = useState<ReceiptPreview | null>(
 		null,
 	);
 	const [receiptSessionId, setReceiptSessionId] = useState<string | null>(null);
+	const [reportFocusCustomerPhone, setReportFocusCustomerPhone] = useState<string | null>(null);
 
 	const userId = sessionState.data?.user?.id;
 
@@ -157,6 +183,12 @@ export function OperatorOperationsPage() {
 		setReceiptSessionId(null);
 	};
 
+	const handleViewCustomerHistory = (customerPhone: string) => {
+		if (!customerPhone.trim()) return;
+		setReportFocusCustomerPhone(customerPhone.trim());
+		setActiveTab("reports");
+	};
+
 	if (sessionState.isPending) {
 		return (
 			<div className="flex min-h-dvh items-center justify-center bg-background">
@@ -192,6 +224,19 @@ export function OperatorOperationsPage() {
 		);
 	}
 
+	if (embeddedReportDetail && userId) {
+		return (
+			<ReportDetailPage
+				backTo={embeddedReportDetail.backTo}
+				kind={embeddedReportDetail.kind}
+				operatorContext={operatorContext}
+				selectedLotId={embeddedReportDetail.selectedLotId}
+				userId={userId}
+				value={embeddedReportDetail.value}
+			/>
+		);
+	}
+
 	return (
 		<>
 			<OperatorShell activeTab={activeTab} onTabChange={setActiveTab}>
@@ -210,6 +255,7 @@ export function OperatorOperationsPage() {
 				{activeTab === "gate" && (
 					<GateTab
 						onReceiptReady={handleReceiptReady}
+						onViewCustomerHistory={handleViewCustomerHistory}
 						operatorContext={operatorContext}
 						selectedLotId={selectedLotId}
 						userId={userId ?? ""}
@@ -231,6 +277,21 @@ export function OperatorOperationsPage() {
 
 				{activeTab === "reports" && (
 					<ReportsTab
+						focusCustomerPhone={reportFocusCustomerPhone}
+						initialReportTab={
+							searchParams.get("reportTab") === "owners" ? "owners" : "vehicles"
+						}
+						initialSearchText={searchParams.get("search") ?? ""}
+						initialSortKey={
+							(searchParams.get("sort") as
+								| "label_asc"
+								| "oldest"
+								| "recent"
+								| "revenue_asc"
+								| "revenue_desc"
+								| "visits_asc"
+								| "visits_desc") ?? "revenue_desc"
+						}
 						onReceiptReady={handleReceiptReady}
 						onSelectLot={setSelectedLotId}
 						operatorContext={operatorContext}

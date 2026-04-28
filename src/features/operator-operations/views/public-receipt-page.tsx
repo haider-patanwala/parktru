@@ -34,7 +34,7 @@ export function PublicReceiptPage({
 			<section className="mx-auto flex w-full max-w-2xl flex-col gap-8 rounded-[2rem] border border-neutral-200/80 bg-white/95 p-6 shadow-[0_24px_80px_rgba(15,23,42,0.08)] backdrop-blur sm:p-8">
 				<header className="flex flex-col gap-3 border-neutral-200 border-b pb-6">
 					<p className="font-medium text-[0.7rem] text-neutral-500 uppercase tracking-[0.24em]">
-						ParkTru receipt
+						ParkTru ticket
 					</p>
 					<div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
 						<div>
@@ -42,6 +42,9 @@ export function PublicReceiptPage({
 								{receipt.tenantName}
 							</h1>
 							<p className="mt-1 text-neutral-600">{receipt.parkingLotName}</p>
+							<p className="mt-2 inline-flex rounded-full bg-emerald-100 px-3 py-1 font-medium text-emerald-800 text-xs">
+								Status: {receipt.status === "active" ? "Parked" : "Exited"}
+							</p>
 						</div>
 						<div className="rounded-2xl bg-neutral-950 px-4 py-3 text-white">
 							<p className="text-white/70 text-xs uppercase tracking-[0.18em]">
@@ -88,7 +91,7 @@ export function PublicReceiptPage({
 				<div className="grid gap-4 rounded-3xl border border-neutral-200 bg-white p-5 sm:grid-cols-2">
 					<div>
 						<p className="text-neutral-500 text-xs uppercase tracking-[0.16em]">
-							Receipt number
+							Parking ticket number
 						</p>
 						<p className="mt-2 font-medium text-lg">{receipt.receiptNumber}</p>
 					</div>

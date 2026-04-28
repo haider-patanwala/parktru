@@ -52,6 +52,7 @@ export interface SessionSnapshot {
 	parkingLotId: string;
 	parkingLotName: string;
 	status: "active" | "closed";
+	vehicleType?: string;
 }
 
 export interface PlateLookupResult {
@@ -79,6 +80,7 @@ export interface ReceiptPreview {
 	receiptId: string;
 	receiptNumber: string;
 	sharePath: string;
+	status?: "active" | "closed";
 	tenantName: string;
 }
 

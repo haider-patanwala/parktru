@@ -221,6 +221,7 @@ export async function postEntryWithOffline(input: {
 		parkingLotName: activeLot?.name ?? "Parking lot",
 		rateMode: resolvedRateMode,
 		status: "active",
+		vehicleType: input.vehicleType?.trim() ?? "",
 	};
 
 	await saveSessionLists(
