@@ -11,15 +11,19 @@ export function QueryProvider({
 }: Readonly<{ children: React.ReactNode }>) {
 	const [queryClient] = useState(() => new QueryClient());
 
-	return (
-		<SerwistProvider swUrl="/sw.js">
-			<QueryClientProvider client={queryClient}>
-				<PwaInstallProvider>
-					{children}
-					<InstallPwaNotice />
-				</PwaInstallProvider>
-				<ToastProvider placement="top" />
-			</QueryClientProvider>
-		</SerwistProvider>
+	const appProviders = (
+		<QueryClientProvider client={queryClient}>
+			<PwaInstallProvider>
+				{children}
+				<InstallPwaNotice />
+			</PwaInstallProvider>
+			<ToastProvider placement="top" />
+		</QueryClientProvider>
 	);
+
+	if (process.env.NODE_ENV !== "production") {
+		return appProviders;
+	}
+
+	return <SerwistProvider swUrl="/sw.js">{appProviders}</SerwistProvider>;
 }

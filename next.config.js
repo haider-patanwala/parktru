@@ -2,7 +2,7 @@
 const config = {
 	output: "standalone",
 	reactStrictMode: true,
-	allowedDevOrigins: ["parktru.shares.zrok.io", "localhost:3000"],
+	allowedDevOrigins: ["parktru.shares.zrok.io", "parktru-dev-hermes.shares.zrok.io", "localhost:3000"],
 	async headers() {
 		return [
 			{

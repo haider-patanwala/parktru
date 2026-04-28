@@ -37,6 +37,7 @@ import { Separator } from "@/components/ui/separator";
 import {
 	defaultNationalityCodeForLotCountry,
 	getNationalitySelectOptions,
+	vehiclePlatePlaceholderForCountry,
 } from "@/features/operator-operations/lib/operator-locale.constants";
 import { countryCodeToFlagEmoji } from "@/features/operator-operations/lib/operator-locale.display";
 import {
@@ -70,7 +71,6 @@ import { eden } from "@/server/eden";
 const NATIONALITY_OPTIONS = getNationalitySelectOptions();
 const DEFAULT_VEHICLE_TYPE = "LMV";
 const VEHICLE_TYPE_OPTIONS = [
-	{ label: "Bike", value: "BIKE" },
 	{ label: "Car (LMV)", value: "LMV" },
 	{ label: "Truck (HMV)", value: "HMV" },
 ] as const;
@@ -494,7 +494,7 @@ export function GateTab({
 					<Input
 						className="h-14 min-w-0 rounded-xl bg-secondary px-4 font-mono text-lg uppercase tracking-widest"
 						onChange={(event) => setPlateNumber(event.target.value)}
-						placeholder="MH12AB1234"
+						placeholder={vehiclePlatePlaceholderForCountry(activeLot?.countryCode)}
 						value={plateNumber}
 					/>
 					<Button
@@ -873,7 +873,7 @@ export function GateTab({
 								selectedKey={vehicleType}
 							>
 								<Tabs.ListContainer className="w-full rounded-xl bg-secondary p-1">
-									<Tabs.List className="grid h-12 w-full grid-cols-3 gap-1">
+									<Tabs.List className="grid h-12 w-full grid-cols-2 gap-1">
 										{VEHICLE_TYPE_OPTIONS.map((option) => (
 											<Tab
 												className="h-10 gap-1 rounded-lg border border-transparent px-2 text-foreground/70 text-xs transition-colors aria-selected:bg-primary aria-selected:text-primary-foreground aria-selected:ring-1 aria-selected:ring-primary/30 data-[selected]:bg-primary data-[selected]:text-primary-foreground data-[selected]:shadow-sm data-[selected]:ring-1 data-[selected]:ring-primary/30 sm:text-sm"
@@ -881,25 +881,7 @@ export function GateTab({
 												key={option.value}
 											>
 												<span aria-hidden>
-													{option.value === "BIKE" && (
-														<svg
-															aria-hidden="true"
-															className="size-4"
-															fill="none"
-															focusable="false"
-															stroke="currentColor"
-															strokeLinecap="round"
-															strokeLinejoin="round"
-															strokeWidth="1.8"
-															viewBox="0 0 24 24"
-														>
-															<circle cx="6" cy="17" r="3" />
-															<circle cx="18" cy="17" r="3" />
-															<path d="M6 17h4l4-6h3" />
-															<path d="M10 11 8 7H5" />
-															<path d="M14 11h3" />
-														</svg>
-													)}
+
 													{option.value === "LMV" && (
 														<svg
 															aria-hidden="true"
