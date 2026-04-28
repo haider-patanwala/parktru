@@ -1,6 +1,6 @@
 "use client";
 
-import { type ReactNode, useEffect, useState } from "react";
+import type { ReactNode } from "react";
 import { cn } from "@/lib/utils";
 
 export type TabId = "home" | "gate" | "sessions" | "reports" | "settings";
@@ -107,30 +107,8 @@ export function OperatorShell({
 	onTabChange,
 	children,
 }: OperatorShellProps) {
-	const [isOnline, setIsOnline] = useState(true);
-
-	useEffect(() => {
-		if (typeof window === "undefined") return;
-
-		const sync = () => setIsOnline(window.navigator.onLine);
-		sync();
-		window.addEventListener("online", sync);
-		window.addEventListener("offline", sync);
-		return () => {
-			window.removeEventListener("online", sync);
-			window.removeEventListener("offline", sync);
-		};
-	}, []);
-
 	return (
 		<div className="flex min-h-dvh flex-col bg-background">
-			{/* Offline banner */}
-			{!isOnline && (
-				<div className="safe-top bg-warning/20 px-4 py-2 text-center font-medium text-warning-foreground text-xs">
-					You are offline. Changes will sync when reconnected.
-				</div>
-			)}
-
 			{/* Main content area */}
 			<main className="flex-1 overflow-y-auto pb-20">{children}</main>
 

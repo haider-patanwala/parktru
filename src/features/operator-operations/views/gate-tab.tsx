@@ -1,6 +1,19 @@
 "use client";
 
-import { Calendar, DateField, DatePicker, Label, toast } from "@heroui/react";
+import {
+	Calendar,
+	DateField,
+	DatePicker,
+	Button as HeroButton,
+	Input as HeroInput,
+	Select as HeroSelect,
+	Label,
+	ListBox,
+	Spinner,
+	Tab,
+	Tabs,
+	toast,
+} from "@heroui/react";
 import type { DateValue } from "@internationalized/date";
 import {
 	now as dateNow,
@@ -8,7 +21,7 @@ import {
 	parseAbsoluteToLocal,
 } from "@internationalized/date";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -22,6 +35,11 @@ import {
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import {
+	defaultNationalityCodeForLotCountry,
+	getNationalitySelectOptions,
+} from "@/features/operator-operations/lib/operator-locale.constants";
+import { countryCodeToFlagEmoji } from "@/features/operator-operations/lib/operator-locale.display";
+import {
 	formatCurrency,
 	formatDateTime,
 	formatDuration,
@@ -34,10 +52,31 @@ import type {
 	OperatorContext,
 	PlateLookupResult,
 	ReceiptPreview,
-	SessionSnapshot,
+	SessionLists,
 } from "@/features/operator-operations/models/operator-operations.types";
+import {
+	localLookupPlate,
+	mergeSessionIntoLists,
+	postEntryTimeWithOffline,
+	postEntryWithOffline,
+	postExitWithOffline,
+	postSelectGateWithOffline,
+} from "@/features/operator-operations/sync/operator.actions";
+import { loadSessionLists } from "@/features/operator-operations/sync/operator.store";
 import { PlateCameraSheet } from "@/features/operator-operations/views/plate-camera-sheet";
+import { cn } from "@/lib/utils";
 import { eden } from "@/server/eden";
+
+const NATIONALITY_OPTIONS = getNationalitySelectOptions();
+const DEFAULT_VEHICLE_TYPE = "LMV";
+const VEHICLE_TYPE_OPTIONS = [
+	{ label: "Bike", value: "BIKE" },
+	{ label: "Car (LMV)", value: "LMV" },
+	{ label: "Truck (HMV)", value: "HMV" },
+] as const;
+
+const nationalityFieldTriggerClass =
+	"min-h-12 w-full rounded-xl border border-border/60 bg-secondary px-3 shadow-none ring-0 transition-colors hover:border-border focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/20";
 
 function dateValueFromEntryAt(entryAt: string | Date): DateValue {
 	const iso = entryAt instanceof Date ? entryAt.toISOString() : String(entryAt);
@@ -48,14 +87,17 @@ interface GateTabProps {
 	operatorContext: OperatorContext;
 	selectedLotId: string | null;
 	onReceiptReady: (preview: ReceiptPreview, sessionId: string) => void;
+	userId: string;
 }
 
 type GateMode = "search" | "entry" | "exit" | "duplicate";
+type EntryRateMode = "hourly" | "session";
 
 export function GateTab({
 	operatorContext,
 	selectedLotId,
 	onReceiptReady,
+	userId,
 }: GateTabProps) {
 	const queryClient = useQueryClient();
 	const activeLot =
@@ -66,34 +108,75 @@ export function GateTab({
 	const activeGate =
 		gates.find((g) => g.id === selectedGateId) ?? gates[0] ?? null;
 
+	const refreshSessionsFromLocal = async () => {
+		if (!selectedLotId) return;
+		const fresh = await loadSessionLists(userId, selectedLotId);
+		if (fresh) {
+			queryClient.setQueryData(
+				["operator-sessions", selectedLotId, userId],
+				fresh,
+			);
+		}
+	};
+
 	const [mode, setMode] = useState<GateMode>("search");
 	const [plateNumber, setPlateNumber] = useState("");
 	const [customerName, setCustomerName] = useState("");
 	const [customerPhone, setCustomerPhone] = useState("");
-	const [vehicleType, setVehicleType] = useState("");
+	const [vehicleType, setVehicleType] = useState<string>(DEFAULT_VEHICLE_TYPE);
+	const [nationalityCode, setNationalityCode] = useState(() =>
+		defaultNationalityCodeForLotCountry(activeLot?.countryCode),
+	);
 	const [lookupResult, setLookupResult] = useState<PlateLookupResult | null>(
 		null,
 	);
 	const [isPlateCameraOpen, setIsPlateCameraOpen] = useState(false);
+	const [entryDateTimeDraft, setEntryDateTimeDraft] =
+		useState<DateValue | null>(() => dateNow(getLocalTimeZone()));
 	const [entryTimeDraft, setEntryTimeDraft] = useState<DateValue | null>(null);
+	const [entryRateMode, setEntryRateMode] = useState<EntryRateMode>("hourly");
+	const [entryRateAmount, setEntryRateAmount] = useState("0");
 	const [finalAmount, setFinalAmount] = useState("0");
 	const [overrideAmount, setOverrideAmount] = useState("");
 	const activeSession = lookupResult?.activeSession ?? null;
 	const currentBaseRate = activeLot?.baseRate ?? 0;
+	const parsedEntryRateAmount = Number(entryRateAmount);
+	const isEntryRateAmountValid =
+		Number.isFinite(parsedEntryRateAmount) && parsedEntryRateAmount >= 0;
+
+	useEffect(() => {
+		setNationalityCode(
+			defaultNationalityCodeForLotCountry(activeLot?.countryCode),
+		);
+	}, [activeLot?.countryCode]);
+
+	useEffect(() => {
+		if (mode === "search") {
+			setEntryRateMode("hourly");
+			setEntryRateAmount(String(currentBaseRate));
+		}
+	}, [currentBaseRate, mode]);
 
 	const selectGateMutation = useMutation({
-		mutationFn: async (parkingGateId: string) =>
-			unwrapApiResult<OperatorContext>(
-				await eden.operator["select-gate"].post({ parkingGateId }),
-			),
+		mutationFn: async (parkingGateId: string) => {
+			const ctx = await postSelectGateWithOffline({
+				operatorContext,
+				parkingGateId,
+				userId,
+			});
+			if (!ctx) {
+				throw new Error("Could not switch gate.");
+			}
+			return ctx;
+		},
 		onError: (error) => {
 			toast.danger(
 				error instanceof Error ? error.message : "Could not switch gate.",
 				{ timeout: 2000 },
 			);
 		},
-		onSuccess: async () => {
-			await queryClient.invalidateQueries({ queryKey: ["operator-context"] });
+		onSuccess: () => {
+			void queryClient.invalidateQueries({ queryKey: ["operator-context"] });
 		},
 	});
 
@@ -101,8 +184,14 @@ export function GateTab({
 		setPlateNumber("");
 		setCustomerName("");
 		setCustomerPhone("");
-		setVehicleType("");
+		setVehicleType(DEFAULT_VEHICLE_TYPE);
+		setEntryRateMode("hourly");
+		setEntryRateAmount(String(currentBaseRate));
+		setNationalityCode(
+			defaultNationalityCodeForLotCountry(activeLot?.countryCode),
+		);
 		setLookupResult(null);
+		setEntryDateTimeDraft(dateNow(getLocalTimeZone()));
 		setEntryTimeDraft(null);
 		setFinalAmount("0");
 		setOverrideAmount("");
@@ -110,10 +199,29 @@ export function GateTab({
 	};
 
 	const lookupMutation = useMutation({
-		mutationFn: async () =>
-			unwrapApiResult<PlateLookupResult>(
+		mutationFn: async () => {
+			const tenantId = operatorContext.tenant?.id;
+			if (
+				typeof navigator !== "undefined" &&
+				!navigator.onLine &&
+				userId &&
+				selectedLotId &&
+				tenantId
+			) {
+				const local = await localLookupPlate({
+					parkingLotId: selectedLotId,
+					plateNumber,
+					tenantId,
+					userId,
+				});
+				if (local) {
+					return local;
+				}
+			}
+			return unwrapApiResult<PlateLookupResult>(
 				await eden.operator.lookup.plate.post({ plateNumber }),
-			),
+			);
+		},
 		onError: (error) => {
 			toast.danger(
 				error instanceof Error ? error.message : "Plate lookup failed.",
@@ -129,6 +237,8 @@ export function GateTab({
 			if (result.activeSession) {
 				setMode("duplicate");
 				setEntryTimeDraft(dateValueFromEntryAt(result.activeSession.entryAt));
+				setEntryRateMode(result.activeSession.rateMode ?? "hourly");
+				setEntryRateAmount(String(result.activeSession.baseRateSnapshot));
 				setFinalAmount(String(result.activeSession.baseRateSnapshot));
 				setOverrideAmount(
 					result.activeSession.overrideAmount
@@ -137,6 +247,9 @@ export function GateTab({
 				);
 			} else {
 				setMode("entry");
+				setEntryDateTimeDraft(dateNow(getLocalTimeZone()));
+				setEntryRateMode("hourly");
+				setEntryRateAmount(String(currentBaseRate));
 				setFinalAmount(String(currentBaseRate));
 				setOverrideAmount("");
 			}
@@ -144,27 +257,41 @@ export function GateTab({
 	});
 
 	const createEntryMutation = useMutation({
-		mutationFn: async () =>
-			unwrapApiResult<{
-				created: boolean;
-				duplicateSession: SessionSnapshot | null;
-			}>(
-				await eden.operator.entry.post({
-					customerName,
-					customerPhone,
-					displayPlateNumber: plateNumber,
-					parkingGateId: selectedGateId ?? undefined,
-					parkingLotId: selectedLotId ?? "",
-					vehicleType,
-				}),
-			),
+		mutationFn: async () => {
+			const rateAmount = Number(entryRateAmount);
+			if (!Number.isFinite(rateAmount) || rateAmount < 0) {
+				throw new Error("Rate amount must be a valid non-negative number.");
+			}
+			return postEntryWithOffline({
+				customerName,
+				customerPhone,
+				displayPlateNumber: plateNumber,
+				entryAt:
+					entryDateTimeDraft?.toDate(getLocalTimeZone()).toISOString() ??
+					new Date().toISOString(),
+				nationalityCode,
+				operatorContext,
+				parkingGateId: selectedGateId ?? undefined,
+				parkingLotId: selectedLotId ?? "",
+				rateAmount,
+				rateMode: entryRateMode,
+				userId,
+				vehicleType,
+			});
+		},
 		onError: (error) => {
 			toast.danger(
 				error instanceof Error ? error.message : "Entry creation failed.",
 				{ timeout: 2000 },
 			);
 		},
-		onSuccess: async (result) => {
+		onSuccess: (result) => {
+			if ("invalidGate" in result && result.invalidGate) {
+				toast.danger("Pick a valid gate for this parking lot.", {
+					timeout: 2000,
+				});
+				return;
+			}
 			if (!result.created && result.duplicateSession) {
 				setLookupResult({
 					activeSession: result.duplicateSession,
@@ -180,19 +307,31 @@ export function GateTab({
 			}
 
 			resetForm();
-			await queryClient.invalidateQueries({ queryKey: ["operator-sessions"] });
+			if (result.created && result.session && selectedLotId) {
+				queryClient.setQueryData(
+					["operator-sessions", selectedLotId, userId],
+					(prev: SessionLists | undefined) => {
+						const lists = prev ?? {
+							activeSessions: [],
+							recentSessions: [],
+						};
+						return mergeSessionIntoLists(lists, result.session!);
+					},
+				);
+			}
+			void refreshSessionsFromLocal();
 		},
 	});
 
 	const updateEntryTimeMutation = useMutation({
 		mutationFn: async () => {
 			if (!entryTimeDraft) throw new Error("Please select an entry time.");
-			return unwrapApiResult<boolean>(
-				await eden.operator["entry-time"].post({
-					entryAt: entryTimeDraft.toDate(getLocalTimeZone()).toISOString(),
-					parkingSessionId: lookupResult?.activeSession?.id ?? "",
-				}),
-			);
+			return postEntryTimeWithOffline({
+				entryAt: entryTimeDraft.toDate(getLocalTimeZone()).toISOString(),
+				operatorContext,
+				parkingSessionId: lookupResult?.activeSession?.id ?? "",
+				userId,
+			});
 		},
 		onError: (error) => {
 			toast.danger(
@@ -200,15 +339,18 @@ export function GateTab({
 				{ timeout: 2000 },
 			);
 		},
-		onSuccess: async () => {
-			await queryClient.invalidateQueries({ queryKey: ["operator-sessions"] });
-			const freshLookup = await lookupMutation.mutateAsync();
-			setLookupResult(freshLookup);
-			setEntryTimeDraft(
-				freshLookup.activeSession
-					? dateValueFromEntryAt(freshLookup.activeSession.entryAt)
-					: null,
-			);
+		onSuccess: () => {
+			void refreshSessionsFromLocal();
+			lookupMutation.mutate(undefined, {
+				onSuccess: (freshLookup) => {
+					setLookupResult(freshLookup);
+					setEntryTimeDraft(
+						freshLookup.activeSession
+							? dateValueFromEntryAt(freshLookup.activeSession.entryAt)
+							: null,
+					);
+				},
+			});
 		},
 	});
 
@@ -225,30 +367,24 @@ export function GateTab({
 			)
 				throw new Error("Override amount must be valid.");
 
-			return unwrapApiResult<{
-				amount: number;
-				customerName: string;
-				customerPhone: string;
-				entryAt: string;
-				exitAt: string;
-				operatorName: string;
-				parkingLotName: string;
-				plateNumber: string;
-				tenantName: string;
-			}>(
-				await eden.operator.exit.post({
-					finalAmount: amount,
-					overrideAmount: override,
-					parkingSessionId: lookupResult?.activeSession?.id ?? "",
-				}),
-			);
+			const closed = await postExitWithOffline({
+				finalAmount: amount,
+				operatorContext,
+				overrideAmount: override,
+				parkingSessionId: lookupResult?.activeSession?.id ?? "",
+				userId,
+			});
+			if (!closed) {
+				throw new Error("No matching parked vehicle was found.");
+			}
+			return closed;
 		},
 		onError: (error) => {
 			toast.danger(error instanceof Error ? error.message : "Exit failed.", {
 				timeout: 2000,
 			});
 		},
-		onSuccess: async (closed) => {
+		onSuccess: (closed) => {
 			const sessionId = lookupResult?.activeSession?.id ?? "";
 			onReceiptReady(
 				{
@@ -271,7 +407,7 @@ export function GateTab({
 				sessionId,
 			);
 			resetForm();
-			await queryClient.invalidateQueries({ queryKey: ["operator-sessions"] });
+			void refreshSessionsFromLocal();
 		},
 	});
 
@@ -299,10 +435,12 @@ export function GateTab({
 			{/* Header */}
 			<div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
 				<div className="min-w-0 flex-1">
-					<p className="font-medium text-muted-foreground text-xs uppercase tracking-wider">
-						{activeLot.name}
-					</p>
-					<h1 className="mt-1 font-bold text-2xl tracking-tight">Gate</h1>
+					<div className="flex items-baseline gap-3">
+						<h1 className="mt-1 font-bold text-2xl tracking-tight">Gate</h1>
+						<p className="font-medium text-muted-foreground text-xs uppercase tracking-wider">
+							{activeLot.name}
+						</p>
+					</div>
 					{gates.length > 1 ? (
 						<div className="mt-3 max-w-md">
 							<p className="mb-1.5 font-medium text-muted-foreground text-xs uppercase tracking-wider">
@@ -317,7 +455,7 @@ export function GateTab({
 								value={selectedGateId ?? undefined}
 							>
 								<SelectTrigger
-									className="h-11 w-full rounded-xl bg-secondary px-3"
+									className="h-11 w-full rounded-xl bg-white px-3"
 									size="default"
 								>
 									<SelectValue placeholder="Select gate">
@@ -346,22 +484,22 @@ export function GateTab({
 					) : null}
 				</div>
 				<Badge className="shrink-0 self-start rounded-lg" variant="outline">
-					{formatCurrency(currentBaseRate, lotMoneyFormat)} / entry
+					{formatCurrency(currentBaseRate, lotMoneyFormat)} / hr
 				</Badge>
 			</div>
 
 			{/* Search bar */}
 			<div className="rounded-2xl bg-card p-4 ring-1 ring-border">
-				<div className="flex gap-2">
+				<div className="grid grid-cols-[1fr_auto_auto] gap-2">
 					<Input
-						className="h-14 flex-1 rounded-xl bg-secondary px-4 font-mono text-lg uppercase tracking-widest"
+						className="h-14 min-w-0 rounded-xl bg-secondary px-4 font-mono text-lg uppercase tracking-widest"
 						onChange={(event) => setPlateNumber(event.target.value)}
 						placeholder="MH12AB1234"
 						value={plateNumber}
 					/>
 					<Button
 						aria-label="Scan vehicle plate"
-						className="h-14 rounded-xl px-4"
+						className="h-14 rounded-xl px-4 sm:w-auto"
 						onClick={() => setIsPlateCameraOpen(true)}
 						type="button"
 						variant="outline"
@@ -381,7 +519,7 @@ export function GateTab({
 						</svg>
 					</Button>
 					<Button
-						className="h-14 rounded-xl px-5 text-base"
+						className="h-14 rounded-xl px-5 text-base sm:w-auto"
 						disabled={!plateNumber.trim() || lookupMutation.isPending}
 						onClick={() => lookupMutation.mutate()}
 						type="button"
@@ -524,7 +662,9 @@ export function GateTab({
 						</div>
 						<div className="rounded-xl bg-secondary p-3">
 							<p className="font-medium text-[0.65rem] text-muted-foreground uppercase">
-								Base rate
+								{activeSession.rateMode === "session"
+									? "Session rate"
+									: "Hourly rate"}
 							</p>
 							<p className="mt-1 font-medium text-xs">
 								{formatCurrency(activeSession.baseRateSnapshot, lotMoneyFormat)}
@@ -596,52 +736,32 @@ export function GateTab({
 			{/* Entry form */}
 			{(mode === "search" || mode === "entry") && (
 				<div className="rounded-2xl bg-card p-4 ring-1 ring-border">
-					<p className="mb-4 font-medium text-muted-foreground text-xs uppercase tracking-wider">
-						Vehicle entry
-					</p>
-
 					<div className="flex flex-col gap-3">
-						<div>
-							<label
-								className="mb-1.5 block font-medium text-muted-foreground text-xs uppercase tracking-wider"
-								htmlFor="plate-display"
-							>
-								Plate number
-							</label>
-							<Input
-								className="h-13 rounded-xl bg-secondary px-4 font-mono text-base uppercase tracking-widest"
-								id="plate-display"
-								onChange={(event) => setPlateNumber(event.target.value)}
-								placeholder="MH12AB1234"
-								value={plateNumber}
-							/>
-						</div>
-
-						<div className="grid grid-cols-2 gap-3">
-							<div>
+						<div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+							<div className="min-w-0">
 								<label
 									className="mb-1.5 block font-medium text-muted-foreground text-xs uppercase tracking-wider"
 									htmlFor="customer-name"
 								>
 									Name
 								</label>
-								<Input
-									className="h-12 rounded-xl bg-secondary px-4 text-base"
+								<HeroInput
+									className="h-12 w-full min-w-0 rounded-xl bg-secondary text-base"
 									id="customer-name"
 									onChange={(event) => setCustomerName(event.target.value)}
 									placeholder="Customer name"
 									value={customerName}
 								/>
 							</div>
-							<div>
+							<div className="min-w-0">
 								<label
 									className="mb-1.5 block font-medium text-muted-foreground text-xs uppercase tracking-wider"
 									htmlFor="customer-phone"
 								>
 									Phone
 								</label>
-								<Input
-									className="h-12 rounded-xl bg-secondary px-4 text-base"
+								<HeroInput
+									className="h-12 w-full min-w-0 rounded-xl bg-secondary text-base"
 									id="customer-phone"
 									onChange={(event) => setCustomerPhone(event.target.value)}
 									placeholder="9876543210"
@@ -652,49 +772,267 @@ export function GateTab({
 							</div>
 						</div>
 
-						<div>
-							<label
-								className="mb-1.5 block font-medium text-muted-foreground text-xs uppercase tracking-wider"
-								htmlFor="vehicle-type"
+						<HeroSelect
+							className="w-full min-w-0"
+							onChange={(key) => {
+								if (key == null) return;
+								setNationalityCode(String(key));
+							}}
+							placeholder="Nationality"
+							value={nationalityCode}
+						>
+							<Label className="mb-1.5 font-medium text-muted-foreground text-xs uppercase tracking-wider">
+								Nationality
+							</Label>
+							<HeroSelect.Trigger
+								className={cn(nationalityFieldTriggerClass, "min-w-0 px-3")}
 							>
+								<HeroSelect.Value />
+								<HeroSelect.Indicator />
+							</HeroSelect.Trigger>
+							<HeroSelect.Popover className="max-h-[min(24rem,70vh)]">
+								<ListBox>
+									{NATIONALITY_OPTIONS.map((c) => {
+										const flag = countryCodeToFlagEmoji(c.code);
+										return (
+											<ListBox.Item
+												id={c.code}
+												key={c.code}
+												textValue={`${c.name} (${c.code})`}
+											>
+												<span className="flex min-w-0 flex-1 items-center gap-2 text-start">
+													<span
+														aria-hidden
+														className="flex h-8 w-10 shrink-0 items-center justify-center text-xl leading-none"
+													>
+														{flag}
+													</span>
+													<span className="min-w-0 truncate font-medium leading-tight">
+														{c.name}
+													</span>
+													<span className="shrink-0 font-medium text-muted-foreground text-xs tabular-nums">
+														{c.code}
+													</span>
+												</span>
+												<ListBox.ItemIndicator />
+											</ListBox.Item>
+										);
+									})}
+								</ListBox>
+							</HeroSelect.Popover>
+						</HeroSelect>
+
+						<DatePicker
+							className="w-full min-w-0"
+							granularity="minute"
+							hideTimeZone
+							hourCycle={24}
+							maxValue={dateNow(getLocalTimeZone())}
+							onChange={setEntryDateTimeDraft}
+							value={entryDateTimeDraft}
+						>
+							<Label>Entry date and time</Label>
+							<DateField.Group className="w-full min-w-0">
+								<DateField.Input className="w-full min-w-0">
+									{(segment) => <DateField.Segment segment={segment} />}
+								</DateField.Input>
+								<DateField.Suffix>
+									<DatePicker.Trigger>
+										<DatePicker.TriggerIndicator />
+									</DatePicker.Trigger>
+								</DateField.Suffix>
+							</DateField.Group>
+							<DatePicker.Popover>
+								<Calendar aria-label="Select entry date and time">
+									<Calendar.Header>
+										<Calendar.Heading />
+										<Calendar.NavButton slot="previous" />
+										<Calendar.NavButton slot="next" />
+									</Calendar.Header>
+									<Calendar.Grid>
+										<Calendar.GridHeader>
+											{(day) => (
+												<Calendar.HeaderCell>{day}</Calendar.HeaderCell>
+											)}
+										</Calendar.GridHeader>
+										<Calendar.GridBody>
+											{(date) => <Calendar.Cell date={date} />}
+										</Calendar.GridBody>
+									</Calendar.Grid>
+								</Calendar>
+							</DatePicker.Popover>
+						</DatePicker>
+
+						<div>
+							<p className="mb-1.5 block font-medium text-muted-foreground text-xs uppercase tracking-wider">
 								Vehicle type
-							</label>
-							<Input
-								className="h-12 rounded-xl bg-secondary px-4 text-base"
-								id="vehicle-type"
-								onChange={(event) => setVehicleType(event.target.value)}
-								placeholder="Car, Bike, etc."
-								value={vehicleType}
-							/>
+							</p>
+							<Tabs
+								className="w-full"
+								onSelectionChange={(key) => setVehicleType(String(key))}
+								selectedKey={vehicleType}
+							>
+								<Tabs.ListContainer className="w-full rounded-xl bg-secondary p-1">
+									<Tabs.List className="grid h-12 w-full grid-cols-3 gap-1">
+										{VEHICLE_TYPE_OPTIONS.map((option) => (
+											<Tab
+												className="h-10 gap-1 rounded-lg border border-transparent px-2 text-foreground/70 text-xs transition-colors aria-selected:bg-primary aria-selected:text-primary-foreground aria-selected:ring-1 aria-selected:ring-primary/30 data-[selected]:bg-primary data-[selected]:text-primary-foreground data-[selected]:shadow-sm data-[selected]:ring-1 data-[selected]:ring-primary/30 sm:text-sm"
+												id={option.value}
+												key={option.value}
+											>
+												<span aria-hidden>
+													{option.value === "BIKE" && (
+														<svg
+															aria-hidden="true"
+															className="size-4"
+															fill="none"
+															focusable="false"
+															stroke="currentColor"
+															strokeLinecap="round"
+															strokeLinejoin="round"
+															strokeWidth="1.8"
+															viewBox="0 0 24 24"
+														>
+															<circle cx="6" cy="17" r="3" />
+															<circle cx="18" cy="17" r="3" />
+															<path d="M6 17h4l4-6h3" />
+															<path d="M10 11 8 7H5" />
+															<path d="M14 11h3" />
+														</svg>
+													)}
+													{option.value === "LMV" && (
+														<svg
+															aria-hidden="true"
+															className="size-4"
+															fill="none"
+															focusable="false"
+															stroke="currentColor"
+															strokeLinecap="round"
+															strokeLinejoin="round"
+															strokeWidth="1.8"
+															viewBox="0 0 24 24"
+														>
+															<path d="M3 13h18v4a2 2 0 0 1-2 2h-1" />
+															<path d="M3 17a2 2 0 0 0 2 2h1" />
+															<path d="M5 13l2-5h10l2 5" />
+															<circle cx="8" cy="18" r="1.8" />
+															<circle cx="16" cy="18" r="1.8" />
+														</svg>
+													)}
+													{option.value === "HMV" && (
+														<svg
+															aria-hidden="true"
+															className="size-4"
+															fill="none"
+															focusable="false"
+															stroke="currentColor"
+															strokeLinecap="round"
+															strokeLinejoin="round"
+															strokeWidth="1.8"
+															viewBox="0 0 24 24"
+														>
+															<path d="M2 10h11v7H2z" />
+															<path d="M13 12h4l2 2v3h-6z" />
+															<circle cx="6" cy="18" r="1.8" />
+															<circle cx="16" cy="18" r="1.8" />
+															<circle cx="20" cy="18" r="1.8" />
+														</svg>
+													)}
+												</span>
+												<span className="truncate">{option.label}</span>
+											</Tab>
+										))}
+									</Tabs.List>
+								</Tabs.ListContainer>
+							</Tabs>
 						</div>
 
-						<Button
+						<div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+							<div>
+								<p className="mb-1.5 block font-medium text-muted-foreground text-xs uppercase tracking-wider">
+									Rate type
+								</p>
+								<Tabs
+									className="w-full"
+									onSelectionChange={(key) =>
+										setEntryRateMode(String(key) as EntryRateMode)
+									}
+									selectedKey={entryRateMode}
+								>
+									<Tabs.ListContainer className="w-full rounded-xl bg-secondary p-1">
+										<Tabs.List className="grid h-12 w-full grid-cols-2 gap-1">
+											<Tab
+												className="h-10 rounded-lg border border-transparent px-2 text-foreground/70 text-xs transition-colors aria-selected:bg-primary aria-selected:text-primary-foreground aria-selected:ring-1 aria-selected:ring-primary/30 data-[selected]:bg-primary data-[selected]:text-primary-foreground data-[selected]:shadow-sm data-[selected]:ring-1 data-[selected]:ring-primary/30 sm:text-sm"
+												id="hourly"
+											>
+												Hourly
+											</Tab>
+											<Tab
+												className="h-10 rounded-lg border border-transparent px-2 text-foreground/70 text-xs transition-colors aria-selected:bg-primary aria-selected:text-primary-foreground aria-selected:ring-1 aria-selected:ring-primary/30 data-[selected]:bg-primary data-[selected]:text-primary-foreground data-[selected]:shadow-sm data-[selected]:ring-1 data-[selected]:ring-primary/30 sm:text-sm"
+												id="session"
+											>
+												Per session
+											</Tab>
+										</Tabs.List>
+									</Tabs.ListContainer>
+								</Tabs>
+							</div>
+
+							<div>
+								<label
+									className="mb-1.5 block font-medium text-muted-foreground text-xs uppercase tracking-wider"
+									htmlFor="entry-rate-amount"
+								>
+									Amount ({lotMoneyFormat.currencyCode})
+								</label>
+								<Input
+									className="h-12 rounded-xl bg-secondary px-4 text-base"
+									id="entry-rate-amount"
+									min="0"
+									onChange={(event) => setEntryRateAmount(event.target.value)}
+									step="1"
+									type="number"
+									value={entryRateAmount}
+								/>
+								<p className="mt-1 text-[0.65rem] text-muted-foreground">
+									{entryRateMode === "hourly"
+										? "Applied as hourly rate for this session."
+										: "Applied as fixed per-session amount."}
+								</p>
+							</div>
+						</div>
+
+						<HeroButton
 							className="mt-1 h-14 rounded-xl font-semibold text-base"
-							disabled={
+							fullWidth
+							isDisabled={
 								createEntryMutation.isPending ||
 								!selectedLotId ||
 								!selectedGateId ||
 								!plateNumber.trim() ||
-								!customerPhone.trim()
+								!customerPhone.trim() ||
+								!isEntryRateAmountValid
 							}
-							onClick={() => createEntryMutation.mutate()}
-							size="lg"
+							isPending={createEntryMutation.isPending}
+							onPress={() => createEntryMutation.mutate()}
 							type="button"
 						>
-							{createEntryMutation.isPending
-								? "Creating entry..."
-								: "Create entry"}
-						</Button>
+							{createEntryMutation.isPending ? (
+								<Spinner size="sm" />
+							) : (
+								"Create entry"
+							)}
+						</HeroButton>
 
 						{mode === "entry" && lookupResult && (
-							<Button
+							<HeroButton
 								className="h-10 rounded-xl"
-								onClick={resetForm}
+								onPress={resetForm}
 								type="button"
-								variant="ghost"
+								variant="tertiary"
 							>
 								Clear & start over
-							</Button>
+							</HeroButton>
 						)}
 					</div>
 				</div>

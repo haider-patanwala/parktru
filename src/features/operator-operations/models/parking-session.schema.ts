@@ -2,6 +2,8 @@ import { type Model, model, models, Schema, type Types } from "mongoose";
 
 export interface ParkingSessionDocument {
 	baseRateSnapshot: number;
+	rateMode: "hourly" | "session";
+	clientMutationId: string | null;
 	closedBy: string | null;
 	createdAt: Date;
 	createdBy: string;
@@ -12,6 +14,8 @@ export interface ParkingSessionDocument {
 	exitAt: Date | null;
 	finalAmount: number | null;
 	normalizedPlateNumber: string;
+	/** ISO 3166-1 alpha-2 — customer nationality / citizenship */
+	nationalityCode: string;
 	overrideAmount: number | null;
 	parkingGateId: Types.ObjectId | null;
 	parkingLotId: Types.ObjectId;
@@ -29,6 +33,15 @@ const parkingSessionSchema = new Schema(
 			min: 0,
 			required: true,
 			type: Number,
+		},
+		rateMode: {
+			default: "hourly",
+			enum: ["hourly", "session"],
+			type: String,
+		},
+		clientMutationId: {
+			default: null,
+			type: String,
 		},
 		closedBy: {
 			default: null,
@@ -69,6 +82,11 @@ const parkingSessionSchema = new Schema(
 		normalizedPlateNumber: {
 			index: true,
 			required: true,
+			type: String,
+		},
+		nationalityCode: {
+			default: "",
+			trim: true,
 			type: String,
 		},
 		overrideAmount: {
@@ -124,6 +142,13 @@ parkingSessionSchema.index({
 	tenantId: 1,
 });
 parkingSessionSchema.index({ parkingLotId: 1, status: 1, tenantId: 1 });
+parkingSessionSchema.index(
+	{ clientMutationId: 1, tenantId: 1 },
+	{
+		partialFilterExpression: { clientMutationId: { $type: "string" } },
+		unique: true,
+	},
+);
 
 export const ParkingSessionModel =
 	(models.ParkingSession as Model<ParkingSessionDocument> | undefined) ||

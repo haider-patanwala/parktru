@@ -2,7 +2,7 @@
 const config = {
 	output: "standalone",
 	reactStrictMode: true,
-	allowedDevOrigins: ["click-biol-independence-courses.trycloudflare.com"],
+	allowedDevOrigins: ["parktru.shares.zrok.io", "localhost:3000"],
 	async headers() {
 		return [
 			{

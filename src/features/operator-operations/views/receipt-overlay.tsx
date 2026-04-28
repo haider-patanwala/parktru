@@ -7,29 +7,42 @@ import {
 	formatCurrency,
 	formatDateTime,
 	formatDuration,
-	unwrapApiResult,
 } from "@/features/operator-operations/lib/operator-operations.helpers";
-import type { ReceiptPreview } from "@/features/operator-operations/models/operator-operations.types";
-import { eden } from "@/server/eden";
+import type {
+	OperatorContext,
+	ReceiptPreview,
+} from "@/features/operator-operations/models/operator-operations.types";
+import { postReceiptLinkWithOffline } from "@/features/operator-operations/sync/operator.actions";
 
 interface ReceiptOverlayProps {
+	onDismiss: () => void;
+	operatorContext: OperatorContext;
 	preview: ReceiptPreview;
 	sessionId: string;
-	onDismiss: () => void;
+	userId: string;
 }
 
 export function ReceiptOverlay({
+	onDismiss,
+	operatorContext,
 	preview,
 	sessionId,
-	onDismiss,
+	userId,
 }: ReceiptOverlayProps) {
 	const shareReceiptMutation = useMutation({
-		mutationFn: async () =>
-			unwrapApiResult<ReceiptPreview>(
-				await eden.operator.receipt.link.post({
-					parkingSessionId: sessionId,
-				}),
-			),
+		mutationFn: async () => {
+			const result = await postReceiptLinkWithOffline({
+				operatorContext,
+				parkingSessionId: sessionId,
+				userId,
+			});
+			if (!result) {
+				throw new Error(
+					"Connect to the internet to generate a shareable receipt link.",
+				);
+			}
+			return result;
+		},
 		onSuccess: async (result) => {
 			const shareUrl = `${window.location.origin}${result.sharePath}`;
 

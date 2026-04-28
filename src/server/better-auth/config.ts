@@ -6,6 +6,12 @@ import connectToDatabase from "../mongodb";
 const client = await connectToDatabase();
 const db = client?.connection.db;
 
+const productionTrustedOrigins = (
+	process.env.BETTER_AUTH_TRUSTED_ORIGINS?.split(",") ?? []
+)
+	.map((origin) => origin.trim())
+	.filter(Boolean);
+
 export const auth = betterAuth({
 	// Base URL for the app
 	baseURL: process.env.BETTER_AUTH_URL || "http://localhost:3000",
@@ -21,7 +27,12 @@ export const auth = betterAuth({
 			disableDefaultReference: process.env.NODE_ENV === "production",
 		}),
 	],
-	trustedOrigins: ["*"],
+	trustedOrigins:
+		process.env.NODE_ENV === "production"
+			? productionTrustedOrigins.length > 0
+				? productionTrustedOrigins
+				: [process.env.BETTER_AUTH_URL || "http://localhost:3000"]
+			: ["*"],
 });
 
 export type Session = typeof auth.$Infer.Session;

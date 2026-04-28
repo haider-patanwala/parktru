@@ -10,6 +10,7 @@ import {
 	parkingVisitStatusLabel,
 } from "@/features/operator-operations/lib/operator-operations.helpers";
 import type {
+	OperatorContext,
 	ReceiptPreview,
 	SessionLists,
 	SessionSnapshot,
@@ -18,13 +19,14 @@ import { SessionDetailSheet } from "@/features/operator-operations/views/session
 import { cn } from "@/lib/utils";
 
 interface SessionsTabProps {
-	sessions: SessionLists | null;
-	isLoading: boolean;
-	onSelectSession: () => void;
 	baseRate: number;
+	isLoading: boolean;
 	moneyFormat: MoneyFormatOptions;
-	parkingLotName: string;
 	onReceiptReady: (preview: ReceiptPreview, sessionId: string) => void;
+	operatorContext: OperatorContext;
+	parkingLotName: string;
+	sessions: SessionLists | null;
+	userId: string;
 }
 
 type SessionFilter = "active" | "recent";
@@ -123,13 +125,14 @@ function SessionRow({
 }
 
 export function SessionsTab({
-	sessions,
-	isLoading,
-	onSelectSession,
 	baseRate,
+	isLoading,
 	moneyFormat,
-	parkingLotName,
 	onReceiptReady,
+	operatorContext,
+	parkingLotName,
+	sessions,
+	userId,
 }: SessionsTabProps) {
 	const [filter, setFilter] = useState<SessionFilter>("active");
 	const [sheetSession, setSheetSession] = useState<SessionSnapshot | null>(
@@ -204,9 +207,7 @@ export function SessionsTab({
 			) : (
 				<div className="flex flex-col items-center justify-center rounded-2xl bg-card px-6 py-12 text-center ring-1 ring-border">
 					<p className="font-medium text-muted-foreground">
-						{filter === "active"
-							? "No vehicles on lot"
-							: "No recent exits yet"}
+						{filter === "active" ? "No vehicles on lot" : "No recent exits yet"}
 					</p>
 					<p className="mt-1 text-muted-foreground/60 text-xs">
 						{filter === "active"
@@ -219,14 +220,15 @@ export function SessionsTab({
 			<SessionDetailSheet
 				baseRate={baseRate}
 				moneyFormat={moneyFormat}
-				onEdit={onSelectSession}
 				onOpenChange={(open) => {
 					if (!open) setSheetSession(null);
 				}}
 				onReceiptReady={onReceiptReady}
 				open={sheetSession !== null}
+				operatorContext={operatorContext}
 				parkingLotName={parkingLotName}
 				session={sheetSession}
+				userId={userId}
 			/>
 		</div>
 	);
