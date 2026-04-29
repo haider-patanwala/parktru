@@ -3,6 +3,7 @@
 import { toast } from "@heroui/react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import Image from "next/image";
+import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -52,7 +53,7 @@ export function SessionDetailSheet({
 	baseRate,
 	moneyFormat,
 	onOpenChange,
-	onReceiptReady,
+	onReceiptReady: _onReceiptReady,
 	open,
 	operatorContext,
 	parkingLotName,
@@ -60,11 +61,13 @@ export function SessionDetailSheet({
 	userId,
 	onViewCustomerHistory,
 }: SessionDetailSheetProps) {
+	const router = useRouter();
 	const queryClient = useQueryClient();
 	const [editableAmount, setEditableAmount] = useState("");
 	const [activeAmount, setActiveAmount] = useState<number>(0);
 	const [editableCustomerName, setEditableCustomerName] = useState("");
 	const [editableCustomerPhone, setEditableCustomerPhone] = useState("");
+	const [closedReceiptPreview, setClosedReceiptPreview] = useState<ReceiptPreview | null>(null);
 
 
 	useEffect(() => {
@@ -79,6 +82,7 @@ export function SessionDetailSheet({
 		if (!session) return;
 		setEditableCustomerName(session.customerName ?? "");
 		setEditableCustomerPhone(session.customerPhone ?? "");
+		setClosedReceiptPreview(null);
 	}, [session]);
 
 	const shareWhatsappMutation = useMutation({
@@ -121,10 +125,51 @@ export function SessionDetailSheet({
 	});
 
 
-	const handleReceipt = (preview: ReceiptPreview, sessionId: string) => {
-		onOpenChange(false);
-		onReceiptReady(preview, sessionId);
+	const handleReceipt = (preview: ReceiptPreview, _sessionId: string) => {
+		setClosedReceiptPreview(preview);
 	};
+
+	const shareClosedExitWhatsappMutation = useMutation({
+		mutationFn: async () => {
+			if (!session || !closedReceiptPreview) return;
+			const receipt = await postReceiptLinkWithOffline({
+				operatorContext,
+				parkingSessionId: session.id,
+				userId,
+			});
+			if (!receipt?.sharePath) {
+				throw new Error("Public ticket link is unavailable for this session.");
+			}
+			const ticketUrl = `${window.location.origin}${receipt.sharePath}`;
+			const ticketNumber = receipt.receiptNumber || `PK-${session.id.slice(-6).toUpperCase()}`;
+			const closedSession: SessionSnapshot = {
+				...session,
+				customerName: closedReceiptPreview.customerName,
+				customerPhone: closedReceiptPreview.customerPhone,
+				displayPlateNumber: closedReceiptPreview.plateNumber,
+				exitAt: closedReceiptPreview.exitAt,
+				finalAmount: closedReceiptPreview.amount,
+				status: "closed",
+			};
+			return buildWhatsappUrlForSession(
+				closedSession,
+				parkingLotName,
+				moneyFormat,
+				ticketUrl,
+				ticketNumber,
+			);
+		},
+		onError: (error) => {
+			toast.danger(
+				error instanceof Error ? error.message : "Unable to prepare WhatsApp share.",
+				{ timeout: 2200 },
+			);
+		},
+		onSuccess: (url) => {
+			if (!url) return;
+			window.open(url, "_blank", "noopener,noreferrer");
+		},
+	});
 
 
 	const updateAmountMutation = useMutation({
@@ -320,7 +365,7 @@ export function SessionDetailSheet({
 							) : null}
 						</div>
 
-						{session.status === "active" && (
+						{session.status === "active" && !closedReceiptPreview && (
 							<>
 								<Separator />
 								<div className="max-h-[34dvh] overflow-y-auto pr-1">
@@ -335,6 +380,40 @@ export function SessionDetailSheet({
 								</div>
 							</>
 						)}
+
+						{closedReceiptPreview ? (
+							<div className="mt-2 rounded-2xl bg-white p-4 ring-1 ring-primary/25 dark:bg-card">
+								<p className="font-semibold text-base">Ticket details</p>
+								<div className="mt-3 space-y-1.5 text-sm">
+									<p><span className="text-muted-foreground">Plate:</span> <span className="font-medium">{closedReceiptPreview.plateNumber}</span></p>
+									<p><span className="text-muted-foreground">Amount:</span> <span className="font-semibold">{formatCurrency(closedReceiptPreview.amount, moneyFormat)}</span></p>
+									<p><span className="text-muted-foreground">Entry:</span> {formatDateTime(closedReceiptPreview.entryAt, moneyFormat.countryCode)}</p>
+									<p><span className="text-muted-foreground">Exit:</span> {formatDateTime(closedReceiptPreview.exitAt, moneyFormat.countryCode)}</p>
+								</div>
+								<div className="mt-4 flex flex-col gap-2">
+									<Button
+										className="h-12 rounded-xl font-semibold inline-flex items-center justify-center gap-2"
+										disabled={shareClosedExitWhatsappMutation.isPending}
+										onClick={() => shareClosedExitWhatsappMutation.mutate()}
+										type="button"
+									>
+										<Image alt="WhatsApp" height={22} src="/whatsapp.svg" width={22} />
+										{shareClosedExitWhatsappMutation.isPending ? "Preparing link..." : "Share on WhatsApp"}
+									</Button>
+									<Button
+										className="h-11 rounded-xl"
+										onClick={() => {
+											onOpenChange(false);
+											router.push("/operator?tab=home");
+										}}
+										type="button"
+										variant="outline"
+									>
+										Go back to home
+									</Button>
+								</div>
+							</div>
+						) : null}
 					</div>
 				)}
 			</SheetContent>
