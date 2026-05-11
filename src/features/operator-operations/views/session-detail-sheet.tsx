@@ -31,6 +31,7 @@ import type {
 	SessionSnapshot,
 } from "@/features/operator-operations/models/operator-operations.types";
 import {
+	postEntryCustomerWithOffline,
 	postEntryRateWithOffline,
 	postReceiptLinkWithOffline,
 } from "@/features/operator-operations/sync/operator.actions";
@@ -68,6 +69,7 @@ export function SessionDetailSheet({
 	const [editableCustomerName, setEditableCustomerName] = useState("");
 	const [editableCustomerPhone, setEditableCustomerPhone] = useState("");
 	const [closedReceiptPreview, setClosedReceiptPreview] = useState<ReceiptPreview | null>(null);
+	const [showExitDonePopup, setShowExitDonePopup] = useState(false);
 
 
 	useEffect(() => {
@@ -83,7 +85,18 @@ export function SessionDetailSheet({
 		setEditableCustomerName(session.customerName ?? "");
 		setEditableCustomerPhone(session.customerPhone ?? "");
 		setClosedReceiptPreview(null);
+		setShowExitDonePopup(false);
 	}, [session]);
+
+	useEffect(() => {
+		if (!showExitDonePopup) return;
+		const timer = window.setTimeout(() => {
+			onOpenChange(false);
+			router.push("/operator?tab=home");
+			setShowExitDonePopup(false);
+		}, 1100);
+		return () => window.clearTimeout(timer);
+	}, [onOpenChange, router, showExitDonePopup]);
 
 	const shareWhatsappMutation = useMutation({
 		mutationFn: async () => {
@@ -171,6 +184,85 @@ export function SessionDetailSheet({
 		},
 	});
 
+	const viewReceiptPdfMutation = useMutation({
+		mutationFn: async () => {
+			if (!session) return;
+			const receipt = await postReceiptLinkWithOffline({
+				operatorContext,
+				parkingSessionId: session.id,
+				userId,
+			});
+			if (!receipt?.sharePath) {
+				throw new Error("Public ticket link is unavailable for this session.");
+			}
+			return `${window.location.origin}${receipt.sharePath}`;
+		},
+		onError: (error) => {
+			toast.danger(
+				error instanceof Error ? error.message : "Unable to open receipt.",
+				{ timeout: 2200 },
+			);
+		},
+		onSuccess: (url) => {
+			if (!url) return;
+			window.open(url, "_blank", "noopener,noreferrer");
+		},
+	});
+
+
+	const updateCustomerMutation = useMutation({
+		mutationFn: async () => {
+			if (!session) {
+				throw new Error("Session not found.");
+			}
+			const ok = await postEntryCustomerWithOffline({
+				customerName: editableCustomerName.trim(),
+				customerPhone: editableCustomerPhone.trim(),
+				parkingLotId: session.parkingLotId,
+				parkingSessionId: session.id,
+				userId,
+			});
+			if (!ok) throw new Error("Could not update customer details.");
+			return true;
+		},
+		onError: (error) => {
+			toast.danger(
+				error instanceof Error
+					? error.message
+					: "Could not update customer details.",
+				{ timeout: 2000 },
+			);
+		},
+		onSuccess: () => {
+			if (!session) return;
+			queryClient.setQueryData(
+				["operator-sessions", session.parkingLotId, userId],
+				(
+					prev:
+						| {
+								activeSessions: SessionSnapshot[];
+								recentSessions: SessionSnapshot[];
+						  }
+						| undefined,
+				) => {
+					if (!prev) return prev;
+					const patch = (s: SessionSnapshot): SessionSnapshot =>
+						s.id === session.id
+							? {
+									...s,
+									customerName: editableCustomerName.trim(),
+									customerPhone: editableCustomerPhone.trim(),
+							  }
+							: s;
+					return {
+						activeSessions: prev.activeSessions.map(patch),
+						recentSessions: prev.recentSessions.map(patch),
+					};
+				},
+			);
+			toast.success("Customer details updated.", { timeout: 1500 });
+		},
+	});
 
 	const updateAmountMutation = useMutation({
 		mutationFn: async () => {
@@ -223,6 +315,21 @@ export function SessionDetailSheet({
 		},
 	});
 
+	const isSavePending =
+		updateAmountMutation.isPending || updateCustomerMutation.isPending;
+
+	const handleSaveDetails = async () => {
+		if (!session) return;
+		if (session.status === "active") {
+			await Promise.all([
+				updateAmountMutation.mutateAsync(),
+				updateCustomerMutation.mutateAsync(),
+			]);
+			return;
+		}
+		await updateCustomerMutation.mutateAsync();
+	};
+
 	return (
 		<Sheet onOpenChange={onOpenChange} open={open}>
 			<SheetContent
@@ -232,7 +339,7 @@ export function SessionDetailSheet({
 				side="bottom"
 			>
 				{session && (
-					<div className="flex h-full flex-col gap-3 px-4 pt-2 pb-4">
+					<div className="relative flex h-full flex-col gap-3 px-4 pt-2 pb-4">
 						<SheetHeader className="space-y-1 px-0 text-start">
 							<div className="flex items-start justify-between gap-3">
 								<div>
@@ -322,10 +429,10 @@ export function SessionDetailSheet({
 							</div>
 						</div>
 
-						<div className="mt-auto flex gap-2">
+						<div className="mt-auto grid grid-cols-3 gap-2">
 							{onViewCustomerHistory ? (
 								<Button
-									className="h-12 rounded-xl px-4 font-semibold"
+									className="h-12 rounded-xl px-3 font-semibold"
 									onClick={() =>
 										onViewCustomerHistory(
 											editableCustomerPhone.trim(),
@@ -337,33 +444,55 @@ export function SessionDetailSheet({
 								>
 									History
 								</Button>
-							) : null}
+							) : (
+								<div />
+							)}
 							<Button
-								className="h-12 flex-1 rounded-xl font-semibold inline-flex items-center justify-center gap-2"
+								className="h-12 rounded-xl px-3 font-semibold inline-flex items-center justify-center gap-2"
+								disabled={isSavePending}
+								onClick={() => void handleSaveDetails()}
+								type="button"
+							>
+								{isSavePending ? (
+									<span className="inline-flex items-center gap-2">
+										<span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent" />
+										Save
+									</span>
+								) : (
+									"Save"
+								)}
+							</Button>
+							<Button
+								className="h-12 rounded-xl px-3 font-semibold inline-flex items-center justify-center gap-2"
 								disabled={shareWhatsappMutation.isPending}
 								onClick={() => shareWhatsappMutation.mutate()}
 								type="button"
+								variant="outline"
 							>
-								<Image
-									alt="WhatsApp"
-									height={22}
-									src="/whatsapp.svg"
-									width={22}
-								/>
+								<span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-accent">
+									<Image
+										alt="WhatsApp"
+										className="brightness-0 invert"
+										height={14}
+										src="/whatsapp.svg"
+										width={14}
+									/>
+								</span>
 								Share
 							</Button>
-							{session.status === "active" ? (
-								<Button
-									className="h-12 rounded-xl px-5 font-semibold"
-									disabled={updateAmountMutation.isPending}
-									onClick={() => updateAmountMutation.mutate()}
-									type="button"
-									variant="outline"
-								>
-									{updateAmountMutation.isPending ? "Saving..." : "Save"}
-								</Button>
-							) : null}
 						</div>
+
+						{session.status === "closed" ? (
+							<Button
+								className="mt-2 h-11 w-full rounded-xl"
+								disabled={viewReceiptPdfMutation.isPending}
+								onClick={() => viewReceiptPdfMutation.mutate()}
+								type="button"
+								variant="outline"
+							>
+								{viewReceiptPdfMutation.isPending ? "Opening receipt..." : "View receipt (PDF)"}
+							</Button>
+						) : null}
 
 						{session.status === "active" && !closedReceiptPreview && (
 							<>
@@ -383,7 +512,8 @@ export function SessionDetailSheet({
 
 						{closedReceiptPreview ? (
 							<div className="mt-2 rounded-2xl bg-white p-4 ring-1 ring-primary/25 dark:bg-card">
-								<p className="font-semibold text-base">Ticket details</p>
+								<p className="font-semibold text-base">Receipt</p>
+								<p className="mt-1 text-muted-foreground text-xs">Review details, share on WhatsApp, then tap Done.</p>
 								<div className="mt-3 space-y-1.5 text-sm">
 									<p><span className="text-muted-foreground">Plate:</span> <span className="font-medium">{closedReceiptPreview.plateNumber}</span></p>
 									<p><span className="text-muted-foreground">Amount:</span> <span className="font-semibold">{formatCurrency(closedReceiptPreview.amount, moneyFormat)}</span></p>
@@ -391,26 +521,64 @@ export function SessionDetailSheet({
 									<p><span className="text-muted-foreground">Exit:</span> {formatDateTime(closedReceiptPreview.exitAt, moneyFormat.countryCode)}</p>
 								</div>
 								<div className="mt-4 flex flex-col gap-2">
+									{onViewCustomerHistory ? (
+										<Button
+											className="h-11 rounded-xl"
+											onClick={() =>
+												onViewCustomerHistory(
+													(closedReceiptPreview.customerPhone ?? "").trim(),
+													(closedReceiptPreview.customerName ?? "").trim(),
+												)
+											}
+											type="button"
+											variant="outline"
+										>
+											History
+										</Button>
+									) : null}
 									<Button
 										className="h-12 rounded-xl font-semibold inline-flex items-center justify-center gap-2"
 										disabled={shareClosedExitWhatsappMutation.isPending}
 										onClick={() => shareClosedExitWhatsappMutation.mutate()}
 										type="button"
+										variant="outline"
 									>
-										<Image alt="WhatsApp" height={22} src="/whatsapp.svg" width={22} />
+										<span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-accent">
+											<Image alt="WhatsApp" className="brightness-0 invert" height={14} src="/whatsapp.svg" width={14} />
+										</span>
 										{shareClosedExitWhatsappMutation.isPending ? "Preparing link..." : "Share on WhatsApp"}
 									</Button>
 									<Button
 										className="h-11 rounded-xl"
-										onClick={() => {
-											onOpenChange(false);
-											router.push("/operator?tab=home");
-										}}
+										onClick={() => setShowExitDonePopup(true)}
 										type="button"
-										variant="outline"
 									>
-										Go back to home
+										Done
 									</Button>
+								</div>
+							</div>
+						) : null}
+
+						{showExitDonePopup ? (
+							<div className="pointer-events-none absolute inset-0 z-40 flex items-center justify-center bg-background/45 backdrop-blur-[1px]">
+								<div className="w-[min(20rem,88vw)] rounded-2xl border border-border/70 bg-card px-6 py-7 text-center shadow-xl">
+									<div className="relative mx-auto inline-flex h-16 w-16 items-center justify-center rounded-full bg-emerald-500/12 text-emerald-600">
+										<div className="absolute inset-0 rounded-full border-2 border-emerald-400/45 animate-ping" />
+										<svg
+											aria-hidden="true"
+											className="relative z-10 h-8 w-8"
+											fill="none"
+											stroke="currentColor"
+											strokeLinecap="round"
+											strokeLinejoin="round"
+											strokeWidth="2.5"
+											viewBox="0 0 24 24"
+										>
+											<path d="M20 6 9 17l-5-5" />
+										</svg>
+									</div>
+									<p className="mt-3 font-semibold text-base">Done</p>
+									<p className="mt-1 text-muted-foreground text-sm">Exit completed successfully.</p>
 								</div>
 							</div>
 						) : null}

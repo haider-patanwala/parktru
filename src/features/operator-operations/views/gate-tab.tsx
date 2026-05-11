@@ -602,6 +602,20 @@ export function GateTab({
 							? ` · ${activeSession.parkingGateName}`
 							: ""}
 					</p>
+					<div className="mt-3 grid grid-cols-2 gap-2 text-xs">
+						<div className="rounded-xl bg-warning/5 px-3 py-2 ring-1 ring-warning/20">
+							<p className="text-muted-foreground">Customer name</p>
+							<p className="mt-1 font-medium text-foreground">
+								{activeSession.customerName || "Not provided"}
+							</p>
+						</div>
+						<div className="rounded-xl bg-warning/5 px-3 py-2 ring-1 ring-warning/20">
+							<p className="text-muted-foreground">Customer number</p>
+							<p className="mt-1 font-medium font-mono text-foreground">
+								{activeSession.customerPhone || "Not provided"}
+							</p>
+						</div>
+					</div>
 
 					<div className="mt-4 flex gap-2">
 						<Button

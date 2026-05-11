@@ -1,5 +1,5 @@
 import { getSharedReceiptPreview } from "@/features/operator-operations/models/operator-operations.repository";
-import { PublicReceiptPage } from "@/features/operator-operations/views/public-receipt-page";
+import { PublicReceiptClientPage } from "@/features/operator-operations/views/public-receipt-client-page";
 
 export default async function ReceiptPage({
 	params,
@@ -17,5 +17,5 @@ export default async function ReceiptPage({
 			})
 		: null;
 
-	return <PublicReceiptPage receipt={receipt} />;
+	return <PublicReceiptClientPage receipt={receipt} />;
 }

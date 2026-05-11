@@ -486,6 +486,65 @@ export async function postEntryRateWithOffline(input: {
 	return true;
 }
 
+export async function postEntryCustomerWithOffline(input: {
+	customerName: string;
+	customerPhone: string;
+	parkingLotId: string;
+	parkingSessionId: string;
+	userId: string;
+}): Promise<boolean> {
+	const idempotencyKey = newIdempotencyKey();
+
+	const online = await tryPost(async () =>
+		unwrapApiResult(
+			await eden.operator["entry-customer"].post({
+				customerName: input.customerName,
+				customerPhone: input.customerPhone,
+				idempotencyKey,
+				parkingSessionId: input.parkingSessionId,
+			}),
+		),
+	);
+
+	if (online) {
+		return true;
+	}
+
+	const lists = (await loadSessionLists(input.userId, input.parkingLotId)) ?? {
+		activeSessions: [],
+		recentSessions: [],
+	};
+	const patch = (s: SessionSnapshot): SessionSnapshot =>
+		s.id === input.parkingSessionId
+			? {
+					...s,
+					customerName: input.customerName.trim(),
+					customerPhone: input.customerPhone.trim(),
+			  }
+			: s;
+
+	await saveSessionLists(input.userId, input.parkingLotId, {
+		activeSessions: lists.activeSessions.map(patch),
+		recentSessions: lists.recentSessions.map(patch),
+	});
+
+	const item: OutboxItem = {
+		attempts: 0,
+		createdAt: Date.now(),
+		id: newCommandId(),
+		idempotencyKey,
+		kind: "entry-customer",
+		payload: {
+			customerName: input.customerName,
+			customerPhone: input.customerPhone,
+			parkingSessionId: input.parkingSessionId,
+		},
+	};
+	await enqueueOutbox(input.userId, item);
+	kickOperatorSync();
+	return true;
+}
+
 export async function postSelectGateWithOffline(input: {
 	operatorContext: OperatorContext;
 	parkingGateId: string;

@@ -1098,6 +1098,32 @@ export async function updateParkingEntryRate(input: {
 	return session;
 }
 
+export async function updateParkingSessionCustomer(input: {
+	customerName: string;
+	customerPhone: string;
+	parkingSessionId: string;
+	tenantId: string;
+	userId: string;
+}) {
+	await ensureConnected();
+
+	const session = await findParkingSessionScoped({
+		parkingSessionId: input.parkingSessionId,
+		tenantId: input.tenantId,
+	});
+
+	if (!session) {
+		return null;
+	}
+
+	session.customerName = input.customerName.trim();
+	session.customerPhone = input.customerPhone.trim();
+	session.updatedBy = input.userId;
+	await session.save();
+
+	return session;
+}
+
 export async function setParkingLotBaseRate(input: {
 	baseRate: number;
 	countryCode?: string;

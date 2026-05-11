@@ -268,6 +268,7 @@ export function OperatorOperationsPage({
 						isLoading={sessionsQuery.isPending}
 						moneyFormat={moneyFormatFromLot(selectedLotSummary)}
 						onReceiptReady={handleReceiptReady}
+						onViewCustomerHistory={handleViewCustomerHistory}
 						operatorContext={operatorContext}
 						parkingLotName={selectedLotSummary?.name ?? "Parking lot"}
 						sessions={sessionsQuery.data ?? null}

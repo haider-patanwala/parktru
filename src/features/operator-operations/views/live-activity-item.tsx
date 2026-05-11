@@ -64,6 +64,8 @@ export function LiveActivityItem({
 					</p>
 				</div>
 				<div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-muted-foreground text-xs">
+					<span className="truncate">Customer: {session.customerName || "No name"}</span>
+					<span aria-hidden>•</span>
 					<span>{formatDuration(session.entryAt, new Date())} parked</span>
 					<span aria-hidden>•</span>
 					<span>Entered {formatDateTime(session.entryAt, moneyFormat.countryCode)}</span>

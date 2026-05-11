@@ -24,6 +24,7 @@ interface SessionsTabProps {
 	isLoading: boolean;
 	moneyFormat: MoneyFormatOptions;
 	onReceiptReady: (preview: ReceiptPreview, sessionId: string) => void;
+	onViewCustomerHistory?: (customerPhone: string, customerName?: string) => void;
 	operatorContext: OperatorContext;
 	parkingLotName: string;
 	sessions: SessionLists | null;
@@ -130,6 +131,7 @@ export function SessionsTab({
 	isLoading,
 	moneyFormat,
 	onReceiptReady,
+	onViewCustomerHistory,
 	operatorContext,
 	parkingLotName,
 	sessions,
@@ -235,6 +237,7 @@ export function SessionsTab({
 					if (!open) setSheetSession(null);
 				}}
 				onReceiptReady={onReceiptReady}
+				onViewCustomerHistory={onViewCustomerHistory}
 				open={sheetSession !== null}
 				operatorContext={operatorContext}
 				parkingLotName={parkingLotName}

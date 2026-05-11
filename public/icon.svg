@@ -1,11 +1,14 @@
-<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <rect width="512" height="512" rx="120" fill="#0A0A0A"/>
-  <rect x="44" y="44" width="424" height="424" rx="96" fill="url(#paint0_linear)"/>
-  <path d="M170 128H272C349.32 128 394 171.8 394 241.4C394 312.6 349.2 357 272.8 357H230.8V416H170V128ZM262.4 308.8C305.84 308.8 333.2 284.92 333.2 242.24C333.2 199.68 305.84 176.48 262.4 176.48H230.8V308.8H262.4Z" fill="white"/>
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="ParkTru logo">
+  <rect width="512" height="512" rx="112" fill="#0B1110"/>
+  <rect x="40" y="40" width="432" height="432" rx="92" fill="url(#surface)"/>
+  <path d="M150 390V122H267C334.6 122 379 162.2 379 225C379 287.9 334.6 328 267 328H217V390H150Z" fill="#F7FFFC"/>
+  <path d="M217 182V268H262C292.2 268 311 252.1 311 225C311 198 292.2 182 262 182H217Z" fill="url(#surface)"/>
+  <path d="M292 366L336 410L414 322" stroke="#D4F7E6" stroke-width="38" stroke-linecap="round" stroke-linejoin="round"/>
   <defs>
-    <linearGradient id="paint0_linear" x1="256" y1="44" x2="256" y2="468" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#1A8B5B"/>
-      <stop offset="1" stop-color="#0E5E3D"/>
+    <linearGradient id="surface" x1="256" y1="40" x2="256" y2="472" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#177767"/>
+      <stop offset="0.56" stop-color="#0F5D51"/>
+      <stop offset="1" stop-color="#0A423B"/>
     </linearGradient>
   </defs>
 </svg>
