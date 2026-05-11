@@ -114,6 +114,33 @@ export function toISOString(value: string | Date): string {
 	return String(value);
 }
 
+/** Default exit amount suggestion based on rate mode and elapsed parked time. */
+export function roundMoneyAmount(value: number): number {
+	if (!Number.isFinite(value)) return 0;
+	return Math.max(0, Math.round(value * 100) / 100);
+}
+
+export function toMoneyInputValue(value: number): string {
+	return String(roundMoneyAmount(value));
+}
+
+export function computeSuggestedExitAmount(
+	session: Pick<SessionSnapshot, "baseRateSnapshot" | "rateMode"> & {
+		entryAt: string | Date;
+	},
+	at: Date = new Date(),
+): number {
+	const baseRate = Number.isFinite(session.baseRateSnapshot)
+		? Math.max(0, session.baseRateSnapshot)
+		: 0;
+	if (session.rateMode === "session") {
+		return roundMoneyAmount(baseRate);
+	}
+	const elapsedMs = Math.max(0, at.getTime() - new Date(session.entryAt).getTime());
+	const elapsedHours = elapsedMs / (1000 * 60 * 60);
+	return roundMoneyAmount(baseRate * elapsedHours);
+}
+
 export function toDatetimeLocalValue(value: string | Date): string {
 	return toISOString(value).slice(0, 16);
 }
@@ -134,6 +161,8 @@ export function buildWhatsappUrlForSession(
 	session: SessionSnapshot,
 	parkingLotName: string,
 	moneyFormat: MoneyFormatOptions,
+	ticketUrl?: string,
+	ticketNumber?: string,
 ): string {
 	const lines: string[] = [
 		"Parked vehicle",
@@ -153,6 +182,12 @@ export function buildWhatsappUrlForSession(
 	}
 	if (session.parkingGateName) {
 		lines.push(`Gate: ${session.parkingGateName}`);
+	}
+	if (ticketNumber) {
+		lines.push(`Ticket number: ${ticketNumber}`);
+	}
+	if (ticketUrl) {
+		lines.push(`Ticket: ${ticketUrl}`);
 	}
 	const text = lines.join("\n");
 	const digits = session.customerPhone?.replace(/\D/g, "") ?? "";

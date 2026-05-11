@@ -21,6 +21,7 @@ import {
 	setSelectedParkingLotForUser,
 	updateParkingEntryRate,
 	updateParkingEntryTime,
+	updateParkingSessionCustomer,
 } from "@/features/operator-operations/models/operator-operations.repository";
 import type {
 	ApiResult,
@@ -778,6 +779,63 @@ export const operatorOperationsController = new Elysia({
 		{
 			body: t.Object({
 				amount: t.Numeric({ minimum: 0 }),
+				idempotencyKey: t.Optional(t.String()),
+				parkingSessionId: t.String(),
+			}),
+		},
+	)
+	.post(
+		"/entry-customer",
+		async ({ body, request, set }) => {
+			const user = await getAuthenticatedUser(request);
+
+			if (!user) {
+				set.status = 401;
+				return failure("Sign in before editing customer details.");
+			}
+
+			const context = await getOperatorContextForUser({
+				email: user.email,
+				id: user.id,
+				name: user.name,
+				role: "role" in user ? user.role : null,
+			});
+
+			if (!context.tenant) {
+				set.status = 409;
+				return failure(
+					"Create an operator workspace before editing parking records.",
+				);
+			}
+
+			const tenantId = context.tenant.id;
+
+			const updated = await withIdempotency({
+				key: body.idempotencyKey,
+				route: "POST /operator/entry-customer",
+				run: () =>
+					updateParkingSessionCustomer({
+						customerName: body.customerName,
+						customerPhone: body.customerPhone,
+						parkingSessionId: body.parkingSessionId,
+						tenantId,
+						userId: user.id,
+					}),
+				shouldCache: (doc) => doc !== null,
+				userId: user.id,
+			});
+
+			if (!updated) {
+				set.status = 404;
+				return failure("No matching parking record was found.");
+			}
+
+			return success(true);
+		},
+		{
+			body: t.Object({
+				customerName: t.String({ default: "" }),
+				customerPhone: t.String({ default: "" }),
 				idempotencyKey: t.Optional(t.String()),
 				parkingSessionId: t.String(),
 			}),
