@@ -125,7 +125,9 @@ export function toMoneyInputValue(value: number): string {
 }
 
 export function computeSuggestedExitAmount(
-	session: Pick<SessionSnapshot, "baseRateSnapshot" | "entryAt" | "rateMode">,
+	session: Pick<SessionSnapshot, "baseRateSnapshot" | "rateMode"> & {
+		entryAt: string | Date;
+	},
 	at: Date = new Date(),
 ): number {
 	const baseRate = Number.isFinite(session.baseRateSnapshot)

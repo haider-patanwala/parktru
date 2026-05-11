@@ -111,19 +111,24 @@ export function SessionDetailSheet({
 				parkingSessionId: session.id,
 				userId,
 			});
-			if (!receipt?.sharePath) {
+			const isOffline = navigator.onLine === false;
+			if (!receipt?.sharePath && !isOffline) {
 				throw new Error("Public ticket link is unavailable for this session.");
 			}
-			const ticketUrl = `${window.location.origin}${receipt.sharePath}`;
-			const ticketNumber =
-				receipt.receiptNumber || `PK-${session.id.slice(-6).toUpperCase()}`;
-			return buildWhatsappUrlForSession(
-				sessionForShare,
-				parkingLotName,
-				moneyFormat,
-				ticketUrl,
-				ticketNumber,
-			);
+			const ticketUrl = receipt?.sharePath
+				? `${window.location.origin}${receipt.sharePath}`
+				: undefined;
+			const ticketNumber = receipt?.receiptNumber || `PK-${session.id.slice(-6).toUpperCase()}`;
+			return {
+				usedOfflineFallback: !receipt?.sharePath,
+				url: buildWhatsappUrlForSession(
+					sessionForShare,
+					parkingLotName,
+					moneyFormat,
+					ticketUrl,
+					ticketNumber,
+				),
+			};
 		},
 		onError: (error) => {
 			toast.danger(
@@ -131,9 +136,14 @@ export function SessionDetailSheet({
 				{ timeout: 2200 },
 			);
 		},
-		onSuccess: (url) => {
-			if (!url) return;
-			window.open(url, "_blank", "noopener,noreferrer");
+		onSuccess: (result) => {
+			if (!result?.url) return;
+			if (result.usedOfflineFallback) {
+				toast.warning("Offline share opened without a public ticket link.", {
+					timeout: 2200,
+				});
+			}
+			window.open(result.url, "_blank", "noopener,noreferrer");
 		},
 	});
 
@@ -150,11 +160,14 @@ export function SessionDetailSheet({
 				parkingSessionId: session.id,
 				userId,
 			});
-			if (!receipt?.sharePath) {
+			const isOffline = navigator.onLine === false;
+			if (!receipt?.sharePath && !isOffline) {
 				throw new Error("Public ticket link is unavailable for this session.");
 			}
-			const ticketUrl = `${window.location.origin}${receipt.sharePath}`;
-			const ticketNumber = receipt.receiptNumber || `PK-${session.id.slice(-6).toUpperCase()}`;
+			const ticketUrl = receipt?.sharePath
+				? `${window.location.origin}${receipt.sharePath}`
+				: undefined;
+			const ticketNumber = receipt?.receiptNumber || `PK-${session.id.slice(-6).toUpperCase()}`;
 			const closedSession: SessionSnapshot = {
 				...session,
 				customerName: closedReceiptPreview.customerName,
@@ -164,13 +177,16 @@ export function SessionDetailSheet({
 				finalAmount: closedReceiptPreview.amount,
 				status: "closed",
 			};
-			return buildWhatsappUrlForSession(
-				closedSession,
-				parkingLotName,
-				moneyFormat,
-				ticketUrl,
-				ticketNumber,
-			);
+			return {
+				usedOfflineFallback: !receipt?.sharePath,
+				url: buildWhatsappUrlForSession(
+					closedSession,
+					parkingLotName,
+					moneyFormat,
+					ticketUrl,
+					ticketNumber,
+				),
+			};
 		},
 		onError: (error) => {
 			toast.danger(
@@ -178,9 +194,14 @@ export function SessionDetailSheet({
 				{ timeout: 2200 },
 			);
 		},
-		onSuccess: (url) => {
-			if (!url) return;
-			window.open(url, "_blank", "noopener,noreferrer");
+		onSuccess: (result) => {
+			if (!result?.url) return;
+			if (result.usedOfflineFallback) {
+				toast.warning("Offline share opened without a public ticket link.", {
+					timeout: 2200,
+				});
+			}
+			window.open(result.url, "_blank", "noopener,noreferrer");
 		},
 	});
 
@@ -490,7 +511,7 @@ export function SessionDetailSheet({
 								type="button"
 								variant="outline"
 							>
-								{viewReceiptPdfMutation.isPending ? "Opening receipt..." : "View receipt (PDF)"}
+								{viewReceiptPdfMutation.isPending ? "Opening receipt..." : "View receipt"}
 							</Button>
 						) : null}
 

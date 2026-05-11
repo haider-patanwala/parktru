@@ -3,6 +3,7 @@ import {
 	buildParkingGateCode,
 	buildParkingLotCode,
 	buildSharePath,
+	computeSuggestedExitAmount,
 	normalizePlateNumber,
 } from "@/features/operator-operations/lib/operator-operations.helpers";
 import type {
@@ -1378,7 +1379,13 @@ export async function generateReceiptLink(input: {
 			finalAmount:
 				typeof session.finalAmount === "number"
 					? session.finalAmount
-					: session.baseRateSnapshot,
+					: session.status === "active"
+						? computeSuggestedExitAmount({
+								baseRateSnapshot: session.baseRateSnapshot,
+								entryAt: session.entryAt,
+								rateMode: session.rateMode,
+							})
+						: session.baseRateSnapshot,
 		},
 		shareToken: receipt.shareToken,
 		status: session.status,
@@ -1438,7 +1445,13 @@ export async function getSharedReceiptPreview(input: {
 			finalAmount:
 				typeof session.finalAmount === "number"
 					? session.finalAmount
-					: session.baseRateSnapshot,
+					: session.status === "active"
+						? computeSuggestedExitAmount({
+								baseRateSnapshot: session.baseRateSnapshot,
+								entryAt: session.entryAt,
+								rateMode: session.rateMode,
+							})
+						: session.baseRateSnapshot,
 		},
 		shareToken: receipt.shareToken,
 		status: session.status,
