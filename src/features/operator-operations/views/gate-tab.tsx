@@ -9,6 +9,7 @@ import {
 	Select as HeroSelect,
 	Label,
 	ListBox,
+	Modal,
 	Spinner,
 	Tab,
 	Tabs,
@@ -139,6 +140,8 @@ export function GateTab({
 	const [isPlateCameraOpen, setIsPlateCameraOpen] = useState(false);
 	const [isSessionSheetOpen, setIsSessionSheetOpen] = useState(false);
 	const [sheetSessionId, setSheetSessionId] = useState<string | null>(null);
+	const [showCreateDonePopup, setShowCreateDonePopup] = useState(false);
+	const [lastCreatedPlateNumber, setLastCreatedPlateNumber] = useState<string>("");
 	const [entryDateTimeDraft, setEntryDateTimeDraft] =
 		useState<DateValue | null>(() => dateNow(getLocalTimeZone()));
 	const [entryTimeDraft, setEntryTimeDraft] = useState<DateValue | null>(null);
@@ -167,6 +170,14 @@ export function GateTab({
 			setEntryRateAmount(String(currentBaseRate));
 		}
 	}, [currentBaseRate, mode]);
+
+	useEffect(() => {
+		if (!showCreateDonePopup) return;
+		const timer = window.setTimeout(() => {
+			setShowCreateDonePopup(false);
+		}, 1200);
+		return () => window.clearTimeout(timer);
+	}, [showCreateDonePopup]);
 
 	const selectGateMutation = useMutation({
 		mutationFn: async (parkingGateId: string) => {
@@ -319,6 +330,8 @@ export function GateTab({
 
 			resetForm();
 			if (result.created && result.session && selectedLotId) {
+				setLastCreatedPlateNumber(result.session.displayPlateNumber);
+				setShowCreateDonePopup(true);
 				queryClient.setQueryData(
 					["operator-sessions", selectedLotId, userId],
 					(prev: SessionLists | undefined) => {
@@ -443,6 +456,34 @@ export function GateTab({
 				onOpenChange={setIsPlateCameraOpen}
 				open={isPlateCameraOpen}
 			/>
+
+			<Modal.Backdrop isOpen={showCreateDonePopup}>
+				<Modal.Container>
+					<Modal.Dialog className="w-[min(22rem,92vw)] rounded-2xl border border-border/70 bg-card p-0 shadow-xl">
+						<Modal.Body className="flex flex-col items-center gap-3 px-6 py-7 text-center">
+							<div className="relative inline-flex h-16 w-16 items-center justify-center rounded-full bg-emerald-500/12 text-emerald-600">
+								<div className="absolute inset-0 rounded-full border-2 border-emerald-400/45 animate-ping" />
+								<svg
+									aria-hidden="true"
+									className="relative z-10 h-8 w-8"
+									fill="none"
+									stroke="currentColor"
+									strokeLinecap="round"
+									strokeLinejoin="round"
+									strokeWidth="2.5"
+									viewBox="0 0 24 24"
+								>
+									<path d="M20 6 9 17l-5-5" />
+								</svg>
+							</div>
+							<p className="font-semibold text-base text-foreground">Done</p>
+							<p className="text-muted-foreground text-sm">
+								Entry created{lastCreatedPlateNumber ? ` for ${lastCreatedPlateNumber}` : ""}.
+							</p>
+						</Modal.Body>
+					</Modal.Dialog>
+				</Modal.Container>
+			</Modal.Backdrop>
 
 			{/* Header */}
 			<div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
