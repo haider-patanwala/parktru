@@ -3,6 +3,7 @@ import {
 	buildParkingGateCode,
 	buildParkingLotCode,
 	buildSharePath,
+	computeSuggestedExitAmount,
 	normalizePlateNumber,
 } from "@/features/operator-operations/lib/operator-operations.helpers";
 import type {
@@ -189,6 +190,7 @@ function mapSessionSnapshot(
 		parkingGateId?: Types.ObjectId | string | null;
 		parkingLotId: Types.ObjectId | string;
 		status: "active" | "closed";
+		vehicleType?: string;
 	},
 	lotNameMap: Map<string, string>,
 	gateNameMap: Map<string, string>,
@@ -217,6 +219,7 @@ function mapSessionSnapshot(
 		parkingLotId,
 		parkingLotName: lotNameMap.get(parkingLotId) ?? "Unknown lot",
 		status: session.status,
+		vehicleType: session.vehicleType?.trim() ?? "",
 	};
 }
 
@@ -228,6 +231,7 @@ function buildReceiptPreview(input: {
 	receiptId: string;
 	receiptNumber: string;
 	shareToken: string;
+	status?: "active" | "closed";
 	tenantName: string;
 	session: {
 		customerName: string;
@@ -253,6 +257,7 @@ function buildReceiptPreview(input: {
 		receiptId: input.receiptId,
 		receiptNumber: input.receiptNumber,
 		sharePath: buildSharePath(input.receiptId, input.shareToken),
+		status: input.status,
 		tenantName: input.tenantName,
 	};
 }
@@ -1094,6 +1099,32 @@ export async function updateParkingEntryRate(input: {
 	return session;
 }
 
+export async function updateParkingSessionCustomer(input: {
+	customerName: string;
+	customerPhone: string;
+	parkingSessionId: string;
+	tenantId: string;
+	userId: string;
+}) {
+	await ensureConnected();
+
+	const session = await findParkingSessionScoped({
+		parkingSessionId: input.parkingSessionId,
+		tenantId: input.tenantId,
+	});
+
+	if (!session) {
+		return null;
+	}
+
+	session.customerName = input.customerName.trim();
+	session.customerPhone = input.customerPhone.trim();
+	session.updatedBy = input.userId;
+	await session.save();
+
+	return session;
+}
+
 export async function setParkingLotBaseRate(input: {
 	baseRate: number;
 	countryCode?: string;
@@ -1290,11 +1321,10 @@ export async function generateReceiptLink(input: {
 
 	const sessionDoc = await findParkingSessionScoped({
 		parkingSessionId: input.parkingSessionId,
-		status: "closed",
 		tenantId: input.tenantId,
 	});
 
-	if (!sessionDoc || !sessionDoc.exitAt || !sessionDoc.finalAmount) {
+	if (!sessionDoc) {
 		return null;
 	}
 
@@ -1345,10 +1375,20 @@ export async function generateReceiptLink(input: {
 			customerPhone: session.customerPhone,
 			displayPlateNumber: session.displayPlateNumber,
 			entryAt: session.entryAt,
-			exitAt: session.exitAt as Date,
-			finalAmount: session.finalAmount as number,
+			exitAt: (session.exitAt as Date | null) ?? new Date(),
+			finalAmount:
+				typeof session.finalAmount === "number"
+					? session.finalAmount
+					: session.status === "active"
+						? computeSuggestedExitAmount({
+								baseRateSnapshot: session.baseRateSnapshot,
+								entryAt: session.entryAt,
+								rateMode: session.rateMode,
+							})
+						: session.baseRateSnapshot,
 		},
 		shareToken: receipt.shareToken,
+		status: session.status,
 		tenantName: tenant?.name ?? "ParkTru",
 	});
 }
@@ -1374,7 +1414,7 @@ export async function getSharedReceiptPreview(input: {
 		.lean()
 		.exec();
 
-	if (!session || !session.exitAt || !session.finalAmount) {
+	if (!session) {
 		return null;
 	}
 
@@ -1401,10 +1441,20 @@ export async function getSharedReceiptPreview(input: {
 			customerPhone: session.customerPhone,
 			displayPlateNumber: session.displayPlateNumber,
 			entryAt: session.entryAt,
-			exitAt: session.exitAt,
-			finalAmount: session.finalAmount,
+			exitAt: session.exitAt ?? new Date(),
+			finalAmount:
+				typeof session.finalAmount === "number"
+					? session.finalAmount
+					: session.status === "active"
+						? computeSuggestedExitAmount({
+								baseRateSnapshot: session.baseRateSnapshot,
+								entryAt: session.entryAt,
+								rateMode: session.rateMode,
+							})
+						: session.baseRateSnapshot,
 		},
 		shareToken: receipt.shareToken,
+		status: session.status,
 		tenantName: tenant?.name ?? "ParkTru",
 	});
 }

@@ -2,6 +2,8 @@
 
 import { toast } from "@heroui/react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import Image from "next/image";
+import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -14,13 +16,12 @@ import {
 	SheetHeader,
 	SheetTitle,
 } from "@/components/ui/sheet";
-import { countryNameFromCode } from "@/features/operator-operations/lib/operator-locale.constants";
-import { countryCodeToFlagEmoji } from "@/features/operator-operations/lib/operator-locale.display";
 import {
 	buildWhatsappUrlForSession,
 	formatCurrency,
 	formatDateTime,
 	formatDuration,
+	toDatetimeLocalValue,
 	type MoneyFormatOptions,
 	parkingVisitStatusLabel,
 } from "@/features/operator-operations/lib/operator-operations.helpers";
@@ -29,7 +30,11 @@ import type {
 	ReceiptPreview,
 	SessionSnapshot,
 } from "@/features/operator-operations/models/operator-operations.types";
-import { postEntryRateWithOffline } from "@/features/operator-operations/sync/operator.actions";
+import {
+	postEntryCustomerWithOffline,
+	postEntryRateWithOffline,
+	postReceiptLinkWithOffline,
+} from "@/features/operator-operations/sync/operator.actions";
 import { SessionExitPanel } from "@/features/operator-operations/views/session-exit-panel";
 
 interface SessionDetailSheetProps {
@@ -42,22 +47,30 @@ interface SessionDetailSheetProps {
 	parkingLotName: string;
 	session: SessionSnapshot | null;
 	userId: string;
+	onViewCustomerHistory?: (customerPhone: string, customerName?: string) => void;
 }
 
 export function SessionDetailSheet({
 	baseRate,
 	moneyFormat,
 	onOpenChange,
-	onReceiptReady,
+	onReceiptReady: _onReceiptReady,
 	open,
 	operatorContext,
 	parkingLotName,
 	session,
 	userId,
+	onViewCustomerHistory,
 }: SessionDetailSheetProps) {
+	const router = useRouter();
 	const queryClient = useQueryClient();
 	const [editableAmount, setEditableAmount] = useState("");
 	const [activeAmount, setActiveAmount] = useState<number>(0);
+	const [editableCustomerName, setEditableCustomerName] = useState("");
+	const [editableCustomerPhone, setEditableCustomerPhone] = useState("");
+	const [closedReceiptPreview, setClosedReceiptPreview] = useState<ReceiptPreview | null>(null);
+	const [showExitDonePopup, setShowExitDonePopup] = useState(false);
+
 
 	useEffect(() => {
 		if (!session || session.status !== "active") return;
@@ -67,20 +80,210 @@ export function SessionDetailSheet({
 		setEditableAmount(String(currentAmount));
 	}, [baseRate, session]);
 
-	const shareWhatsapp = () => {
+	useEffect(() => {
 		if (!session) return;
-		const url = buildWhatsappUrlForSession(
-			session,
-			parkingLotName,
-			moneyFormat,
-		);
-		window.open(url, "_blank", "noopener,noreferrer");
+		setEditableCustomerName(session.customerName ?? "");
+		setEditableCustomerPhone(session.customerPhone ?? "");
+		setClosedReceiptPreview(null);
+		setShowExitDonePopup(false);
+	}, [session]);
+
+	useEffect(() => {
+		if (!showExitDonePopup) return;
+		const timer = window.setTimeout(() => {
+			onOpenChange(false);
+			router.push("/operator?tab=home");
+			setShowExitDonePopup(false);
+		}, 1100);
+		return () => window.clearTimeout(timer);
+	}, [onOpenChange, router, showExitDonePopup]);
+
+	const shareWhatsappMutation = useMutation({
+		mutationFn: async () => {
+			if (!session) return;
+			const sessionForShare: SessionSnapshot = {
+				...session,
+				customerName: editableCustomerName.trim(),
+				customerPhone: editableCustomerPhone.trim(),
+			};
+			const receipt = await postReceiptLinkWithOffline({
+				operatorContext,
+				parkingSessionId: session.id,
+				userId,
+			});
+			const isOffline = navigator.onLine === false;
+			if (!receipt?.sharePath && !isOffline) {
+				throw new Error("Public ticket link is unavailable for this session.");
+			}
+			const ticketUrl = receipt?.sharePath
+				? `${window.location.origin}${receipt.sharePath}`
+				: undefined;
+			const ticketNumber = receipt?.receiptNumber || `PK-${session.id.slice(-6).toUpperCase()}`;
+			return {
+				usedOfflineFallback: !receipt?.sharePath,
+				url: buildWhatsappUrlForSession(
+					sessionForShare,
+					parkingLotName,
+					moneyFormat,
+					ticketUrl,
+					ticketNumber,
+				),
+			};
+		},
+		onError: (error) => {
+			toast.danger(
+				error instanceof Error ? error.message : "Unable to prepare WhatsApp share.",
+				{ timeout: 2200 },
+			);
+		},
+		onSuccess: (result) => {
+			if (!result?.url) return;
+			if (result.usedOfflineFallback) {
+				toast.warning("Offline share opened without a public ticket link.", {
+					timeout: 2200,
+				});
+			}
+			window.open(result.url, "_blank", "noopener,noreferrer");
+		},
+	});
+
+
+	const handleReceipt = (preview: ReceiptPreview, _sessionId: string) => {
+		setClosedReceiptPreview(preview);
 	};
 
-	const handleReceipt = (preview: ReceiptPreview, sessionId: string) => {
-		onOpenChange(false);
-		onReceiptReady(preview, sessionId);
-	};
+	const shareClosedExitWhatsappMutation = useMutation({
+		mutationFn: async () => {
+			if (!session || !closedReceiptPreview) return;
+			const receipt = await postReceiptLinkWithOffline({
+				operatorContext,
+				parkingSessionId: session.id,
+				userId,
+			});
+			const isOffline = navigator.onLine === false;
+			if (!receipt?.sharePath && !isOffline) {
+				throw new Error("Public ticket link is unavailable for this session.");
+			}
+			const ticketUrl = receipt?.sharePath
+				? `${window.location.origin}${receipt.sharePath}`
+				: undefined;
+			const ticketNumber = receipt?.receiptNumber || `PK-${session.id.slice(-6).toUpperCase()}`;
+			const closedSession: SessionSnapshot = {
+				...session,
+				customerName: closedReceiptPreview.customerName,
+				customerPhone: closedReceiptPreview.customerPhone,
+				displayPlateNumber: closedReceiptPreview.plateNumber,
+				exitAt: closedReceiptPreview.exitAt,
+				finalAmount: closedReceiptPreview.amount,
+				status: "closed",
+			};
+			return {
+				usedOfflineFallback: !receipt?.sharePath,
+				url: buildWhatsappUrlForSession(
+					closedSession,
+					parkingLotName,
+					moneyFormat,
+					ticketUrl,
+					ticketNumber,
+				),
+			};
+		},
+		onError: (error) => {
+			toast.danger(
+				error instanceof Error ? error.message : "Unable to prepare WhatsApp share.",
+				{ timeout: 2200 },
+			);
+		},
+		onSuccess: (result) => {
+			if (!result?.url) return;
+			if (result.usedOfflineFallback) {
+				toast.warning("Offline share opened without a public ticket link.", {
+					timeout: 2200,
+				});
+			}
+			window.open(result.url, "_blank", "noopener,noreferrer");
+		},
+	});
+
+	const viewReceiptPdfMutation = useMutation({
+		mutationFn: async () => {
+			if (!session) return;
+			const receipt = await postReceiptLinkWithOffline({
+				operatorContext,
+				parkingSessionId: session.id,
+				userId,
+			});
+			if (!receipt?.sharePath) {
+				throw new Error("Public ticket link is unavailable for this session.");
+			}
+			return `${window.location.origin}${receipt.sharePath}`;
+		},
+		onError: (error) => {
+			toast.danger(
+				error instanceof Error ? error.message : "Unable to open receipt.",
+				{ timeout: 2200 },
+			);
+		},
+		onSuccess: (url) => {
+			if (!url) return;
+			window.open(url, "_blank", "noopener,noreferrer");
+		},
+	});
+
+
+	const updateCustomerMutation = useMutation({
+		mutationFn: async () => {
+			if (!session) {
+				throw new Error("Session not found.");
+			}
+			const ok = await postEntryCustomerWithOffline({
+				customerName: editableCustomerName.trim(),
+				customerPhone: editableCustomerPhone.trim(),
+				parkingLotId: session.parkingLotId,
+				parkingSessionId: session.id,
+				userId,
+			});
+			if (!ok) throw new Error("Could not update customer details.");
+			return true;
+		},
+		onError: (error) => {
+			toast.danger(
+				error instanceof Error
+					? error.message
+					: "Could not update customer details.",
+				{ timeout: 2000 },
+			);
+		},
+		onSuccess: () => {
+			if (!session) return;
+			queryClient.setQueryData(
+				["operator-sessions", session.parkingLotId, userId],
+				(
+					prev:
+						| {
+								activeSessions: SessionSnapshot[];
+								recentSessions: SessionSnapshot[];
+						  }
+						| undefined,
+				) => {
+					if (!prev) return prev;
+					const patch = (s: SessionSnapshot): SessionSnapshot =>
+						s.id === session.id
+							? {
+									...s,
+									customerName: editableCustomerName.trim(),
+									customerPhone: editableCustomerPhone.trim(),
+							  }
+							: s;
+					return {
+						activeSessions: prev.activeSessions.map(patch),
+						recentSessions: prev.recentSessions.map(patch),
+					};
+				},
+			);
+			toast.success("Customer details updated.", { timeout: 1500 });
+		},
+	});
 
 	const updateAmountMutation = useMutation({
 		mutationFn: async () => {
@@ -133,152 +336,273 @@ export function SessionDetailSheet({
 		},
 	});
 
+	const isSavePending =
+		updateAmountMutation.isPending || updateCustomerMutation.isPending;
+
+	const handleSaveDetails = async () => {
+		if (!session) return;
+		if (session.status === "active") {
+			await Promise.all([
+				updateAmountMutation.mutateAsync(),
+				updateCustomerMutation.mutateAsync(),
+			]);
+			return;
+		}
+		await updateCustomerMutation.mutateAsync();
+	};
+
 	return (
 		<Sheet onOpenChange={onOpenChange} open={open}>
 			<SheetContent
-				className="z-[60] max-h-[min(92dvh,800px)] gap-0 overflow-y-auto rounded-t-[1.75rem] border-0 bg-white p-0 pt-2 sm:max-w-lg dark:bg-background"
+				className="z-[60] h-[92dvh] max-h-[92dvh] gap-0 overflow-hidden rounded-t-[1.75rem] border-0 bg-white p-0 pt-2 sm:max-w-lg dark:bg-background"
 				overlayClassName="z-[60]"
 				showCloseButton
 				side="bottom"
 			>
 				{session && (
-					<div className="flex flex-col gap-4 px-4 pt-2 pb-6">
+					<div className="relative flex h-full flex-col gap-3 px-4 pt-2 pb-4">
 						<SheetHeader className="space-y-1 px-0 text-start">
-							<SheetTitle className="font-mono text-xl tracking-wide">
-								{session.displayPlateNumber}
-							</SheetTitle>
-							<SheetDescription className="text-start text-muted-foreground text-sm">
-								Parking details · {parkingLotName}
-							</SheetDescription>
+							<div className="flex items-start justify-between gap-3">
+								<div>
+									<SheetTitle className="font-mono text-xl tracking-wide">
+										{session.displayPlateNumber}
+									</SheetTitle>
+									<SheetDescription className="text-start text-muted-foreground text-xs">
+										{parkingLotName}
+									</SheetDescription>
+								</div>
+								<Badge
+									variant={session.status === "active" ? "default" : "secondary"}
+								>
+									{parkingVisitStatusLabel(session.status)}
+								</Badge>
+							</div>
 						</SheetHeader>
 
-						<div className="flex flex-wrap items-center gap-2">
-							<Badge
-								variant={session.status === "active" ? "default" : "secondary"}
-							>
-								{parkingVisitStatusLabel(session.status)}
-							</Badge>
-							{session.parkingGateName ? (
-								<span className="text-muted-foreground text-xs">
-									{session.parkingGateName}
-								</span>
-							) : null}
-						</div>
-
-						<div className="grid grid-cols-2 gap-3 text-sm">
-							<div className="rounded-2xl bg-white px-3 py-3 ring-1 ring-border/60 dark:bg-card">
-								<p className="text-muted-foreground text-xs">Entry</p>
+						<div className="grid grid-cols-2 gap-2 text-xs">
+							<div className="rounded-xl bg-white px-3 py-2 ring-1 ring-border/60 dark:bg-card">
+								<p className="text-muted-foreground">Gate</p>
 								<p className="mt-1 font-medium leading-snug">
-									{formatDateTime(session.entryAt, moneyFormat.countryCode)}
+									{session.parkingGateName || "—"}
 								</p>
 							</div>
-							<div className="rounded-2xl bg-white px-3 py-3 ring-1 ring-border/60 dark:bg-card">
-								<p className="text-muted-foreground text-xs">Exit</p>
-								<p className="mt-1 font-medium leading-snug">
-									{session.exitAt
-										? formatDateTime(session.exitAt, moneyFormat.countryCode)
-										: "—"}
-								</p>
-							</div>
-							<div className="rounded-2xl bg-white px-3 py-3 ring-1 ring-border/60 dark:bg-card">
-								<p className="text-muted-foreground text-xs">Duration</p>
-								<p className="mt-1 font-medium">
+							<div className="rounded-xl bg-white px-3 py-2 ring-1 ring-border/60 dark:bg-card">
+								<p className="text-muted-foreground">Duration</p>
+								<p className="mt-1 font-semibold text-sm">
 									{session.exitAt
 										? formatDuration(session.entryAt, session.exitAt)
 										: formatDuration(session.entryAt, new Date())}
 								</p>
 							</div>
-							<div className="rounded-2xl bg-white px-3 py-3 ring-1 ring-border/60 dark:bg-card">
-								<p className="text-muted-foreground text-xs">Amount</p>
-								<p className="mt-1 font-semibold tabular-nums">
-									{session.status === "closed"
-										? session.finalAmount != null
-											? formatCurrency(session.finalAmount, moneyFormat)
-											: "—"
-										: formatCurrency(activeAmount, moneyFormat)}
-								</p>
-								{session.status === "active" ? (
-									<>
-										<p className="mt-0.5 text-[0.65rem] text-muted-foreground">
-											{session.rateMode === "session"
-												? "Per-session rate"
-												: "Hourly rate"}
-										</p>
-										<div className="mt-2.5 flex items-end gap-2">
-											<div className="min-w-0 flex-1">
-												<Input
-													className="h-10 rounded-xl bg-secondary px-3"
-													min="0"
-													onChange={(event) =>
-														setEditableAmount(event.target.value)
-													}
-													step="1"
-													type="number"
-													value={editableAmount}
-												/>
-											</div>
-											<Button
-												className="h-10 rounded-xl px-3.5"
-												disabled={updateAmountMutation.isPending}
-												onClick={() => updateAmountMutation.mutate()}
-												type="button"
-												variant="outline"
-											>
-												{updateAmountMutation.isPending ? "Saving..." : "Save"}
-											</Button>
-										</div>
-									</>
-								) : null}
+						</div>
+
+						<div className="rounded-xl bg-white px-3 py-2 ring-1 ring-border/60 dark:bg-card">
+							<p className="mb-1 text-muted-foreground text-xs">Entry</p>
+							<p className="mt-1 font-medium leading-snug">
+								{formatDateTime(session.entryAt, moneyFormat.countryCode)}
+							</p>
+						</div>
+
+						{session.status === "active" ? (
+							<div className="rounded-xl bg-white px-3 py-2 ring-1 ring-border/60 dark:bg-card">
+								<div className="mb-1.5 flex items-center justify-between">
+									<p className="text-muted-foreground text-xs">Hourly rate</p>
+								</div>
+								<div className="flex items-end gap-2">
+									<div className="relative flex-1">
+										<span className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-muted-foreground text-xs align-sub">
+											{moneyFormat.currencyCode}
+										</span>
+										<Input
+											className="h-10 rounded-xl bg-secondary pr-3 pl-14"
+											inputMode="decimal"
+											min="0"
+											onChange={(event) => setEditableAmount(event.target.value)}
+											step="0.01"
+											type="number"
+											value={editableAmount}
+										/>
+									</div>
+								</div>
+							</div>
+						) : null}
+
+						<div className="grid grid-cols-2 gap-2 text-xs">
+							<div className="rounded-xl bg-white px-3 py-2 ring-1 ring-border/60 dark:bg-card">
+								<p className="text-muted-foreground">Customer name</p>
+								<Input
+									className="mt-1 h-10 rounded-xl bg-secondary px-3"
+									onChange={(event) => setEditableCustomerName(event.target.value)}
+									placeholder="Customer name"
+									type="text"
+									value={editableCustomerName}
+								/>
+							</div>
+							<div className="rounded-xl bg-white px-3 py-2 ring-1 ring-border/60 dark:bg-card">
+								<p className="text-muted-foreground">Customer number</p>
+								<Input
+									className="mt-1 h-10 rounded-xl bg-secondary px-3 font-mono"
+									onChange={(event) => setEditableCustomerPhone(event.target.value)}
+									placeholder="9876543210"
+									type="tel"
+									value={editableCustomerPhone}
+								/>
 							</div>
 						</div>
 
-						<div className="rounded-2xl bg-white px-3 py-3 ring-1 ring-border/60 dark:bg-card">
-							<p className="text-muted-foreground text-xs">Customer</p>
-							<p className="mt-1 font-medium">{session.customerName || "—"}</p>
-							<p className="mt-0.5 font-mono text-muted-foreground text-sm">
-								{session.customerPhone || "—"}
-							</p>
-							{session.nationalityCode ? (
-								<p className="mt-2 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-sm">
-									<span className="shrink-0 text-muted-foreground text-xs">
-										Nationality
-									</span>
-									<span aria-hidden className="shrink-0 text-lg leading-none">
-										{countryCodeToFlagEmoji(session.nationalityCode)}
-									</span>
-									<span className="min-w-0 truncate font-medium text-foreground">
-										{countryNameFromCode(session.nationalityCode)}
-									</span>
-									<span className="shrink-0 font-mono text-muted-foreground text-xs tabular-nums">
-										{session.nationalityCode}
-									</span>
-								</p>
-							) : null}
-						</div>
-
-						<div className="flex flex-col gap-2 sm:flex-row">
+						<div className="mt-auto grid grid-cols-3 gap-2">
+							{onViewCustomerHistory ? (
+								<Button
+									className="h-12 rounded-xl px-3 font-semibold"
+									onClick={() =>
+										onViewCustomerHistory(
+											editableCustomerPhone.trim(),
+											editableCustomerName.trim(),
+										)
+									}
+									type="button"
+									variant="outline"
+								>
+									History
+								</Button>
+							) : (
+								<div />
+							)}
 							<Button
-								className="h-18 flex-1 rounded-xl py-3 font-semibold"
-								onClick={shareWhatsapp}
+								className="h-12 rounded-xl px-3 font-semibold inline-flex items-center justify-center gap-2"
+								disabled={isSavePending}
+								onClick={() => void handleSaveDetails()}
 								type="button"
 							>
-								Share on WhatsApp
+								{isSavePending ? (
+									<span className="inline-flex items-center gap-2">
+										<span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent" />
+										Save
+									</span>
+								) : (
+									"Save"
+								)}
+							</Button>
+							<Button
+								className="h-12 rounded-xl px-3 font-semibold inline-flex items-center justify-center gap-2"
+								disabled={shareWhatsappMutation.isPending}
+								onClick={() => shareWhatsappMutation.mutate()}
+								type="button"
+								variant="outline"
+							>
+								<span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-accent">
+									<Image
+										alt="WhatsApp"
+										className="brightness-0 invert"
+										height={14}
+										src="/whatsapp.svg"
+										width={14}
+									/>
+								</span>
+								Share
 							</Button>
 						</div>
 
-						{session.status === "active" && (
+						{session.status === "closed" ? (
+							<Button
+								className="mt-2 h-11 w-full rounded-xl"
+								disabled={viewReceiptPdfMutation.isPending}
+								onClick={() => viewReceiptPdfMutation.mutate()}
+								type="button"
+								variant="outline"
+							>
+								{viewReceiptPdfMutation.isPending ? "Opening receipt..." : "View receipt"}
+							</Button>
+						) : null}
+
+						{session.status === "active" && !closedReceiptPreview && (
 							<>
 								<Separator />
-								<SessionExitPanel
-									baseRate={baseRate}
-									moneyFormat={moneyFormat}
-									onReceiptReady={handleReceipt}
-									operatorContext={operatorContext}
-									session={{ ...session, baseRateSnapshot: activeAmount }}
-									userId={userId}
-								/>
+								<div className="max-h-[34dvh] overflow-y-auto pr-1">
+									<SessionExitPanel
+										baseRate={baseRate}
+										moneyFormat={moneyFormat}
+										onReceiptReady={handleReceipt}
+										operatorContext={operatorContext}
+										session={{ ...session, baseRateSnapshot: activeAmount }}
+										userId={userId}
+									/>
+								</div>
 							</>
 						)}
+
+						{closedReceiptPreview ? (
+							<div className="mt-2 rounded-2xl bg-white p-4 ring-1 ring-primary/25 dark:bg-card">
+								<p className="font-semibold text-base">Receipt</p>
+								<p className="mt-1 text-muted-foreground text-xs">Review details, share on WhatsApp, then tap Done.</p>
+								<div className="mt-3 space-y-1.5 text-sm">
+									<p><span className="text-muted-foreground">Plate:</span> <span className="font-medium">{closedReceiptPreview.plateNumber}</span></p>
+									<p><span className="text-muted-foreground">Amount:</span> <span className="font-semibold">{formatCurrency(closedReceiptPreview.amount, moneyFormat)}</span></p>
+									<p><span className="text-muted-foreground">Entry:</span> {formatDateTime(closedReceiptPreview.entryAt, moneyFormat.countryCode)}</p>
+									<p><span className="text-muted-foreground">Exit:</span> {formatDateTime(closedReceiptPreview.exitAt, moneyFormat.countryCode)}</p>
+								</div>
+								<div className="mt-4 flex flex-col gap-2">
+									{onViewCustomerHistory ? (
+										<Button
+											className="h-11 rounded-xl"
+											onClick={() =>
+												onViewCustomerHistory(
+													(closedReceiptPreview.customerPhone ?? "").trim(),
+													(closedReceiptPreview.customerName ?? "").trim(),
+												)
+											}
+											type="button"
+											variant="outline"
+										>
+											History
+										</Button>
+									) : null}
+									<Button
+										className="h-12 rounded-xl font-semibold inline-flex items-center justify-center gap-2"
+										disabled={shareClosedExitWhatsappMutation.isPending}
+										onClick={() => shareClosedExitWhatsappMutation.mutate()}
+										type="button"
+										variant="outline"
+									>
+										<span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-accent">
+											<Image alt="WhatsApp" className="brightness-0 invert" height={14} src="/whatsapp.svg" width={14} />
+										</span>
+										{shareClosedExitWhatsappMutation.isPending ? "Preparing link..." : "Share on WhatsApp"}
+									</Button>
+									<Button
+										className="h-11 rounded-xl"
+										onClick={() => setShowExitDonePopup(true)}
+										type="button"
+									>
+										Done
+									</Button>
+								</div>
+							</div>
+						) : null}
+
+						{showExitDonePopup ? (
+							<div className="pointer-events-none absolute inset-0 z-40 flex items-center justify-center bg-background/45 backdrop-blur-[1px]">
+								<div className="w-[min(20rem,88vw)] rounded-2xl border border-border/70 bg-card px-6 py-7 text-center shadow-xl">
+									<div className="relative mx-auto inline-flex h-16 w-16 items-center justify-center rounded-full bg-emerald-500/12 text-emerald-600">
+										<div className="absolute inset-0 rounded-full border-2 border-emerald-400/45 animate-ping" />
+										<svg
+											aria-hidden="true"
+											className="relative z-10 h-8 w-8"
+											fill="none"
+											stroke="currentColor"
+											strokeLinecap="round"
+											strokeLinejoin="round"
+											strokeWidth="2.5"
+											viewBox="0 0 24 24"
+										>
+											<path d="M20 6 9 17l-5-5" />
+										</svg>
+									</div>
+									<p className="mt-3 font-semibold text-base">Done</p>
+									<p className="mt-1 text-muted-foreground text-sm">Exit completed successfully.</p>
+								</div>
+							</div>
+						) : null}
 					</div>
 				)}
 			</SheetContent>

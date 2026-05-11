@@ -3,14 +3,13 @@
 import { toast } from "@heroui/react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Separator } from "@/components/ui/separator";
 import {
-	formatDateTime,
-	formatDuration,
+	computeSuggestedExitAmount,
+	roundMoneyAmount,
 	type MoneyFormatOptions,
+	toMoneyInputValue,
 } from "@/features/operator-operations/lib/operator-operations.helpers";
 import type {
 	OperatorContext,
@@ -36,23 +35,20 @@ export function SessionExitPanel({
 }) {
 	const queryClient = useQueryClient();
 	const [finalAmount, setFinalAmount] = useState(
-		String(session.overrideAmount ?? session.baseRateSnapshot ?? baseRate ?? 0),
+		toMoneyInputValue(computeSuggestedExitAmount(session)),
 	);
 	useEffect(() => {
-		setFinalAmount(
-			String(
-				session.overrideAmount ?? session.baseRateSnapshot ?? baseRate ?? 0,
-			),
-		);
-	}, [baseRate, session.baseRateSnapshot, session.overrideAmount]);
+		setFinalAmount(toMoneyInputValue(computeSuggestedExitAmount(session)));
+	}, [session.entryAt, session.baseRateSnapshot, session.rateMode]);
 	const closeExitMutation = useMutation({
 		mutationFn: async () => {
 			const amount = Number(finalAmount);
 			if (!Number.isFinite(amount) || amount < 0)
 				throw new Error("Final amount must be a valid non-negative number.");
+			const roundedAmount = roundMoneyAmount(amount);
 
 			const closed = await postExitWithOffline({
-				finalAmount: amount,
+				finalAmount: roundedAmount,
 				operatorContext,
 				parkingSessionId: session.id,
 				userId,
@@ -95,36 +91,14 @@ export function SessionExitPanel({
 
 	return (
 		<div className="rounded-2xl bg-white p-4 ring-1 ring-primary/30 dark:bg-card">
-			<div className="mb-3 flex items-center justify-between">
-				<div>
-					<p className="font-medium text-muted-foreground text-xs uppercase tracking-wider">
-						Exit checkout
-					</p>
-					<p className="mt-1 font-bold font-mono text-lg tracking-wider">
-						{session.displayPlateNumber}
-					</p>
-				</div>
-				<Badge className="rounded-lg" variant="secondary">
-					{formatDuration(session.entryAt, new Date())}
-				</Badge>
+			<div className="mb-3">
+				<p className="font-medium text-muted-foreground text-xs uppercase tracking-wider">
+					Exit checkout
+				</p>
+				<p className="mt-1 text-muted-foreground text-xs">
+					Confirm final amount (editable)
+				</p>
 			</div>
-
-			<div className="mb-3 grid grid-cols-2 gap-2 text-xs">
-				<div className="rounded-xl bg-white p-2.5 ring-1 ring-border/60 dark:bg-secondary">
-					<p className="text-muted-foreground">Entered</p>
-					<p className="mt-0.5 font-medium">
-						{formatDateTime(session.entryAt, moneyFormat.countryCode)}
-					</p>
-				</div>
-				<div className="rounded-xl bg-white p-2.5 ring-1 ring-border/60 dark:bg-secondary">
-					<p className="text-muted-foreground">Customer</p>
-					<p className="mt-0.5 font-medium">
-						{session.customerName || session.customerPhone || "N/A"}
-					</p>
-				</div>
-			</div>
-
-			<Separator className="my-3" />
 
 			<div>
 				<label
@@ -133,15 +107,26 @@ export function SessionExitPanel({
 				>
 					Final amount
 				</label>
-				<Input
-					className="h-11 rounded-xl border-border bg-white px-3 text-base dark:bg-input/50"
-					id={`final-${session.id}`}
-					min="0"
-					onChange={(e) => setFinalAmount(e.target.value)}
-					step="1"
-					type="number"
-					value={finalAmount}
-				/>
+				<div className="relative">
+					<span className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-muted-foreground text-xs align-sub">
+						{moneyFormat.currencyCode}
+					</span>
+					<Input
+						className="h-11 rounded-xl border-border bg-white pr-3 pl-14 text-base dark:bg-input/50"
+						id={`final-${session.id}`}
+						inputMode="decimal"
+						min="0"
+						onChange={(e) => {
+							const value = e.target.value;
+							if (/^\d*(\.\d{0,2})?$/.test(value)) {
+								setFinalAmount(value);
+							}
+						}}
+						step="0.01"
+						type="number"
+						value={finalAmount}
+					/>
+				</div>
 			</div>
 
 			<div className="mt-3">

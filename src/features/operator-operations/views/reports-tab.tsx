@@ -19,7 +19,8 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import type { DateValue } from "@internationalized/date";
 import { getLocalTimeZone } from "@internationalized/date";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import { useEffect, useMemo, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -65,6 +66,10 @@ interface ReportsTabProps {
 	onSelectLot: (lotId: string) => void;
 	selectedLotId: string | null;
 	userId: string;
+	focusCustomerPhone?: string | null;
+	initialReportTab?: "vehicles" | "owners";
+	initialSearchText?: string;
+	initialSortKey?: ReportSortKey;
 }
 
 type DetailTarget =
@@ -254,15 +259,42 @@ export function ReportsTab({
 	onSelectLot,
 	selectedLotId,
 	userId,
+	focusCustomerPhone,
+	initialReportTab = "vehicles",
+	initialSearchText = "",
+	initialSortKey = "revenue_desc",
 }: ReportsTabProps) {
+	const router = useRouter();
 	const queryClient = useQueryClient();
 	const [detail, setDetail] = useState<DetailTarget | null>(null);
 	const [sheetSession, setSheetSession] = useState<SessionSnapshot | null>(
 		null,
 	);
-	const [sortKey, setSortKey] = useState<ReportSortKey>("revenue_desc");
+	const [sortKey, setSortKey] = useState<ReportSortKey>(initialSortKey);
 	const [dateRange, setDateRange] = useState<ReportDateRange | null>(null);
-	const [searchText, setSearchText] = useState("");
+	const [searchText, setSearchText] = useState(initialSearchText);
+	const [reportTab, setReportTab] = useState<"vehicles" | "owners">(initialReportTab);
+
+	useEffect(() => {
+		if (!focusCustomerPhone?.trim()) return;
+		setSearchText(focusCustomerPhone.trim());
+		setReportTab("owners");
+	}, [focusCustomerPhone]);
+
+	const openDetailRoute = (kind: "owner" | "vehicle", value: string) => {
+		if (!selectedLotId) return;
+		const backParams = new URLSearchParams();
+		backParams.set("tab", "reports");
+		backParams.set("reportTab", reportTab);
+		if (searchText.trim()) backParams.set("search", searchText.trim());
+		backParams.set("sort", sortKey);
+		const params = new URLSearchParams();
+		params.set("lotId", selectedLotId);
+		params.set("backTo", encodeURIComponent(`/operator?${backParams.toString()}`));
+		router.push(
+			`/operator/reports/${kind}/${encodeURIComponent(value)}?${params.toString()}`,
+		);
+	};
 
 	const activeLot =
 		operatorContext.allowedLots.find((l) => l.id === selectedLotId) ?? null;
@@ -652,7 +684,7 @@ export function ReportsTab({
 						) : null}
 					</section>
 
-					<Tabs className="w-full gap-2" defaultValue="vehicles">
+					<Tabs className="w-full gap-2" onValueChange={(value) => setReportTab(value as "vehicles" | "owners")} value={reportTab}>
 						<TabsList className="grid h-9 w-full grid-cols-2 gap-0.5 rounded-lg border border-primary/10 bg-white p-0.5 shadow-[0_1px_2px_rgba(15,23,42,0.04)] dark:border-primary/20 dark:bg-card">
 							<TabsTrigger
 								className={cn(
@@ -717,11 +749,7 @@ export function ReportsTab({
 										)}
 										key={row.normalizedPlateNumber}
 										onClick={() =>
-											setDetail({
-												kind: "vehicle",
-												label: row.displayPlateNumber,
-												normalizedPlateNumber: row.normalizedPlateNumber,
-											})
+											openDetailRoute("vehicle", row.normalizedPlateNumber)
 										}
 										type="button"
 									>
@@ -775,11 +803,7 @@ export function ReportsTab({
 										className="flex w-full items-center gap-2.5 rounded-xl border border-primary/10 bg-white px-3 py-2.5 text-start shadow-[0_1px_2px_rgba(15,23,42,0.04)] transition-transform active:scale-[0.98] dark:border-primary/20 dark:bg-card"
 										key={row.customerPhone}
 										onClick={() =>
-											setDetail({
-												customerPhone: row.customerPhone,
-												kind: "owner",
-												label: row.customerName || row.customerPhone,
-											})
+											openDetailRoute("owner", row.customerPhone)
 										}
 										type="button"
 									>

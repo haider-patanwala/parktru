@@ -129,6 +129,23 @@ export function defaultNationalityCodeForLotCountry(
 	return "IN";
 }
 
+const VEHICLE_PLATE_PLACEHOLDER_BY_COUNTRY: Readonly<Record<string, string>> = {
+	AE: "D 12345",
+	IN: "MH12AB1234",
+	US: "ABC1234",
+	GB: "AB12 CDE",
+	SA: "ABC 1234",
+	SG: "SBA1234A",
+};
+
+/** Vehicle plate placeholder example by parking lot country code. */
+export function vehiclePlatePlaceholderForCountry(
+	lotCountryCode: string | undefined,
+): string {
+	const code = (lotCountryCode ?? "IN").trim().toUpperCase();
+	return VEHICLE_PLATE_PLACEHOLDER_BY_COUNTRY[code] ?? "ABC1234";
+}
+
 /** Common ISO 4217 codes for parking / retail */
 export const CURRENCY_OPTIONS: ReadonlyArray<{ code: string; label: string }> =
 	[

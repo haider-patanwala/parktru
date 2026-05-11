@@ -226,6 +226,37 @@ async function processOne(
 			}
 			return { continue: true };
 		}
+		case "entry-customer": {
+			const body = item.payload as {
+				customerName: string;
+				customerPhone: string;
+				parkingSessionId: string;
+			};
+			const sid = await resolveSessionIdForServer(
+				userId,
+				body.parkingSessionId,
+			);
+			await unwrapApiResult(
+				await eden.operator["entry-customer"].post({
+					customerName: body.customerName,
+					customerPhone: body.customerPhone,
+					idempotencyKey: item.idempotencyKey,
+					parkingSessionId: sid,
+				}),
+			);
+			const ctx = await loadOperatorContext(userId);
+			const lotId =
+				ctx?.selectedParkingLotId ?? ctx?.allowedLots[0]?.id ?? null;
+			if (lotId) {
+				const lists = unwrapApiResult(
+					await eden.operator.sessions.get({
+						query: { parkingLotId: lotId },
+					}),
+				);
+				await saveSessionLists(userId, lotId, lists);
+			}
+			return { continue: true };
+		}
 		case "exit": {
 			const body = item.payload as {
 				finalAmount: number;

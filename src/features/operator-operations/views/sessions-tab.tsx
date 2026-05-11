@@ -17,12 +17,14 @@ import type {
 } from "@/features/operator-operations/models/operator-operations.types";
 import { SessionDetailSheet } from "@/features/operator-operations/views/session-detail-sheet";
 import { cn } from "@/lib/utils";
+import { LiveActivityItem } from "./live-activity-item";
 
 interface SessionsTabProps {
 	baseRate: number;
 	isLoading: boolean;
 	moneyFormat: MoneyFormatOptions;
 	onReceiptReady: (preview: ReceiptPreview, sessionId: string) => void;
+	onViewCustomerHistory?: (customerPhone: string, customerName?: string) => void;
 	operatorContext: OperatorContext;
 	parkingLotName: string;
 	sessions: SessionLists | null;
@@ -129,6 +131,7 @@ export function SessionsTab({
 	isLoading,
 	moneyFormat,
 	onReceiptReady,
+	onViewCustomerHistory,
 	operatorContext,
 	parkingLotName,
 	sessions,
@@ -194,15 +197,25 @@ export function SessionsTab({
 				</div>
 			) : displayedSessions.length > 0 ? (
 				<div className="flex flex-col gap-2">
-					{displayedSessions.map((session) => (
-						<SessionRow
-							isHighlighted={sheetSession?.id === session.id}
-							key={session.id}
-							moneyFormat={moneyFormat}
-							onOpen={setSheetSession}
-							session={session}
-						/>
-					))}
+					{displayedSessions.map((session) =>
+						filter === "active" ? (
+							<LiveActivityItem
+								className={cn(sheetSession?.id === session.id && "ring-primary/40")}
+								key={session.id}
+								moneyFormat={moneyFormat}
+								onClick={() => setSheetSession(session)}
+								session={session}
+							/>
+						) : (
+							<SessionRow
+								isHighlighted={sheetSession?.id === session.id}
+								key={session.id}
+								moneyFormat={moneyFormat}
+								onOpen={setSheetSession}
+								session={session}
+							/>
+						),
+					)}
 				</div>
 			) : (
 				<div className="flex flex-col items-center justify-center rounded-2xl bg-card px-6 py-12 text-center ring-1 ring-border">
@@ -224,6 +237,7 @@ export function SessionsTab({
 					if (!open) setSheetSession(null);
 				}}
 				onReceiptReady={onReceiptReady}
+				onViewCustomerHistory={onViewCustomerHistory}
 				open={sheetSession !== null}
 				operatorContext={operatorContext}
 				parkingLotName={parkingLotName}

@@ -9,6 +9,7 @@ import {
 	Select as HeroSelect,
 	Label,
 	ListBox,
+	Modal,
 	Spinner,
 	Tab,
 	Tabs,
@@ -37,15 +38,19 @@ import { Separator } from "@/components/ui/separator";
 import {
 	defaultNationalityCodeForLotCountry,
 	getNationalitySelectOptions,
+	vehiclePlatePlaceholderForCountry,
 } from "@/features/operator-operations/lib/operator-locale.constants";
 import { countryCodeToFlagEmoji } from "@/features/operator-operations/lib/operator-locale.display";
 import {
+	computeSuggestedExitAmount,
 	formatCurrency,
 	formatDateTime,
 	formatDuration,
 	moneyFormatFromLot,
 	normalizePlateNumber,
+	roundMoneyAmount,
 	toISOString,
+	toMoneyInputValue,
 	unwrapApiResult,
 } from "@/features/operator-operations/lib/operator-operations.helpers";
 import type {
@@ -64,13 +69,13 @@ import {
 } from "@/features/operator-operations/sync/operator.actions";
 import { loadSessionLists } from "@/features/operator-operations/sync/operator.store";
 import { PlateCameraSheet } from "@/features/operator-operations/views/plate-camera-sheet";
+import { SessionDetailSheet } from "@/features/operator-operations/views/session-detail-sheet";
 import { cn } from "@/lib/utils";
 import { eden } from "@/server/eden";
 
 const NATIONALITY_OPTIONS = getNationalitySelectOptions();
 const DEFAULT_VEHICLE_TYPE = "LMV";
 const VEHICLE_TYPE_OPTIONS = [
-	{ label: "Bike", value: "BIKE" },
 	{ label: "Car (LMV)", value: "LMV" },
 	{ label: "Truck (HMV)", value: "HMV" },
 ] as const;
@@ -88,6 +93,7 @@ interface GateTabProps {
 	selectedLotId: string | null;
 	onReceiptReady: (preview: ReceiptPreview, sessionId: string) => void;
 	userId: string;
+	onViewCustomerHistory?: (customerPhone: string, customerName?: string) => void;
 }
 
 type GateMode = "search" | "entry" | "exit" | "duplicate";
@@ -98,6 +104,7 @@ export function GateTab({
 	selectedLotId,
 	onReceiptReady,
 	userId,
+	onViewCustomerHistory,
 }: GateTabProps) {
 	const queryClient = useQueryClient();
 	const activeLot =
@@ -131,6 +138,10 @@ export function GateTab({
 		null,
 	);
 	const [isPlateCameraOpen, setIsPlateCameraOpen] = useState(false);
+	const [isSessionSheetOpen, setIsSessionSheetOpen] = useState(false);
+	const [sheetSessionId, setSheetSessionId] = useState<string | null>(null);
+	const [showCreateDonePopup, setShowCreateDonePopup] = useState(false);
+	const [lastCreatedPlateNumber, setLastCreatedPlateNumber] = useState<string>("");
 	const [entryDateTimeDraft, setEntryDateTimeDraft] =
 		useState<DateValue | null>(() => dateNow(getLocalTimeZone()));
 	const [entryTimeDraft, setEntryTimeDraft] = useState<DateValue | null>(null);
@@ -139,6 +150,9 @@ export function GateTab({
 	const [finalAmount, setFinalAmount] = useState("0");
 	const [overrideAmount, setOverrideAmount] = useState("");
 	const activeSession = lookupResult?.activeSession ?? null;
+	const sessionSheetTarget =
+		(sheetSessionId && activeSession?.id === sheetSessionId ? activeSession : null) ??
+		null;
 	const currentBaseRate = activeLot?.baseRate ?? 0;
 	const parsedEntryRateAmount = Number(entryRateAmount);
 	const isEntryRateAmountValid =
@@ -156,6 +170,14 @@ export function GateTab({
 			setEntryRateAmount(String(currentBaseRate));
 		}
 	}, [currentBaseRate, mode]);
+
+	useEffect(() => {
+		if (!showCreateDonePopup) return;
+		const timer = window.setTimeout(() => {
+			setShowCreateDonePopup(false);
+		}, 1200);
+		return () => window.clearTimeout(timer);
+	}, [showCreateDonePopup]);
 
 	const selectGateMutation = useMutation({
 		mutationFn: async (parkingGateId: string) => {
@@ -239,7 +261,7 @@ export function GateTab({
 				setEntryTimeDraft(dateValueFromEntryAt(result.activeSession.entryAt));
 				setEntryRateMode(result.activeSession.rateMode ?? "hourly");
 				setEntryRateAmount(String(result.activeSession.baseRateSnapshot));
-				setFinalAmount(String(result.activeSession.baseRateSnapshot));
+				setFinalAmount(toMoneyInputValue(result.activeSession.baseRateSnapshot));
 				setOverrideAmount(
 					result.activeSession.overrideAmount
 						? String(result.activeSession.overrideAmount)
@@ -250,7 +272,7 @@ export function GateTab({
 				setEntryDateTimeDraft(dateNow(getLocalTimeZone()));
 				setEntryRateMode("hourly");
 				setEntryRateAmount(String(currentBaseRate));
-				setFinalAmount(String(currentBaseRate));
+				setFinalAmount(toMoneyInputValue(currentBaseRate));
 				setOverrideAmount("");
 			}
 		},
@@ -308,6 +330,8 @@ export function GateTab({
 
 			resetForm();
 			if (result.created && result.session && selectedLotId) {
+				setLastCreatedPlateNumber(result.session.displayPlateNumber);
+				setShowCreateDonePopup(true);
 				queryClient.setQueryData(
 					["operator-sessions", selectedLotId, userId],
 					(prev: SessionLists | undefined) => {
@@ -359,6 +383,7 @@ export function GateTab({
 			const amount = Number(finalAmount);
 			if (!Number.isFinite(amount) || amount < 0)
 				throw new Error("Final amount must be a valid non-negative number.");
+			const roundedAmount = roundMoneyAmount(amount);
 
 			const override = overrideAmount ? Number(overrideAmount) : undefined;
 			if (
@@ -368,7 +393,7 @@ export function GateTab({
 				throw new Error("Override amount must be valid.");
 
 			const closed = await postExitWithOffline({
-				finalAmount: amount,
+				finalAmount: roundedAmount,
 				operatorContext,
 				overrideAmount: override,
 				parkingSessionId: lookupResult?.activeSession?.id ?? "",
@@ -432,6 +457,34 @@ export function GateTab({
 				open={isPlateCameraOpen}
 			/>
 
+			<Modal.Backdrop isOpen={showCreateDonePopup}>
+				<Modal.Container>
+					<Modal.Dialog className="w-[min(22rem,92vw)] rounded-2xl border border-border/70 bg-card p-0 shadow-xl">
+						<Modal.Body className="flex flex-col items-center gap-3 px-6 py-7 text-center">
+							<div className="relative inline-flex h-16 w-16 items-center justify-center rounded-full bg-emerald-500/12 text-emerald-600">
+								<div className="absolute inset-0 rounded-full border-2 border-emerald-400/45 animate-ping" />
+								<svg
+									aria-hidden="true"
+									className="relative z-10 h-8 w-8"
+									fill="none"
+									stroke="currentColor"
+									strokeLinecap="round"
+									strokeLinejoin="round"
+									strokeWidth="2.5"
+									viewBox="0 0 24 24"
+								>
+									<path d="M20 6 9 17l-5-5" />
+								</svg>
+							</div>
+							<p className="font-semibold text-base text-foreground">Done</p>
+							<p className="text-muted-foreground text-sm">
+								Entry created{lastCreatedPlateNumber ? ` for ${lastCreatedPlateNumber}` : ""}.
+							</p>
+						</Modal.Body>
+					</Modal.Dialog>
+				</Modal.Container>
+			</Modal.Backdrop>
+
 			{/* Header */}
 			<div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
 				<div className="min-w-0 flex-1">
@@ -494,7 +547,7 @@ export function GateTab({
 					<Input
 						className="h-14 min-w-0 rounded-xl bg-secondary px-4 font-mono text-lg uppercase tracking-widest"
 						onChange={(event) => setPlateNumber(event.target.value)}
-						placeholder="MH12AB1234"
+						placeholder={vehiclePlatePlaceholderForCountry(activeLot?.countryCode)}
 						value={plateNumber}
 					/>
 					<Button
@@ -549,75 +602,31 @@ export function GateTab({
 							? ` · ${activeSession.parkingGateName}`
 							: ""}
 					</p>
-
-					<div className="mt-4">
-						<DatePicker
-							className="w-full"
-							granularity="minute"
-							hideTimeZone
-							hourCycle={24}
-							maxValue={dateNow(getLocalTimeZone())}
-							onChange={setEntryTimeDraft}
-							value={entryTimeDraft}
-						>
-							<Label>Correct entry time</Label>
-							<DateField.Group>
-								<DateField.Input>
-									{(segment) => <DateField.Segment segment={segment} />}
-								</DateField.Input>
-								<DateField.Suffix>
-									<DatePicker.Trigger>
-										<DatePicker.TriggerIndicator />
-									</DatePicker.Trigger>
-								</DateField.Suffix>
-							</DateField.Group>
-							<DatePicker.Popover>
-								<Calendar aria-label="Select entry date">
-									<Calendar.Header>
-										<Calendar.Heading />
-										<Calendar.NavButton slot="previous" />
-										<Calendar.NavButton slot="next" />
-									</Calendar.Header>
-									<Calendar.Grid>
-										<Calendar.GridHeader>
-											{(day) => (
-												<Calendar.HeaderCell>{day}</Calendar.HeaderCell>
-											)}
-										</Calendar.GridHeader>
-										<Calendar.GridBody>
-											{(date) => <Calendar.Cell date={date} />}
-										</Calendar.GridBody>
-									</Calendar.Grid>
-								</Calendar>
-							</DatePicker.Popover>
-						</DatePicker>
+					<div className="mt-3 grid grid-cols-2 gap-2 text-xs">
+						<div className="rounded-xl bg-warning/5 px-3 py-2 ring-1 ring-warning/20">
+							<p className="text-muted-foreground">Customer name</p>
+							<p className="mt-1 font-medium text-foreground">
+								{activeSession.customerName || "Not provided"}
+							</p>
+						</div>
+						<div className="rounded-xl bg-warning/5 px-3 py-2 ring-1 ring-warning/20">
+							<p className="text-muted-foreground">Customer number</p>
+							<p className="mt-1 font-medium font-mono text-foreground">
+								{activeSession.customerPhone || "Not provided"}
+							</p>
+						</div>
 					</div>
 
 					<div className="mt-4 flex gap-2">
 						<Button
 							className="h-12 flex-1 rounded-xl text-base"
 							onClick={() => {
-								setMode("exit");
-								setFinalAmount(
-									String(
-										activeSession.overrideAmount ??
-											activeLot.baseRate ??
-											activeSession.baseRateSnapshot ??
-											0,
-									),
-								);
+								setSheetSessionId(activeSession.id);
+								setIsSessionSheetOpen(true);
 							}}
 							type="button"
 						>
 							Process exit
-						</Button>
-						<Button
-							className="h-12 rounded-xl"
-							onClick={() => updateEntryTimeMutation.mutate()}
-							type="button"
-							variant="outline"
-						>
-							{updateEntryTimeMutation.isPending ? "..." : "Fix time"}
 						</Button>
 					</div>
 				</div>
@@ -682,15 +691,26 @@ export function GateTab({
 							>
 								Final amount
 							</label>
-							<Input
-								className="h-12 rounded-xl bg-secondary px-4 text-base"
-								id="final-amount"
-								min="0"
-								onChange={(event) => setFinalAmount(event.target.value)}
-								step="1"
-								type="number"
-								value={finalAmount}
-							/>
+							<div className="relative">
+								<span className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-muted-foreground text-xs align-sub">
+									{lotMoneyFormat.currencyCode}
+								</span>
+								<Input
+									className="h-12 rounded-xl bg-secondary pr-4 pl-14 text-base"
+									id="final-amount"
+									inputMode="decimal"
+									min="0"
+									onChange={(event) => {
+										const value = event.target.value;
+										if (/^\d*(\.\d{0,2})?$/.test(value)) {
+											setFinalAmount(value);
+										}
+									}}
+									step="0.01"
+									type="number"
+									value={finalAmount}
+								/>
+							</div>
 						</div>
 						<div>
 							<label
@@ -873,7 +893,7 @@ export function GateTab({
 								selectedKey={vehicleType}
 							>
 								<Tabs.ListContainer className="w-full rounded-xl bg-secondary p-1">
-									<Tabs.List className="grid h-12 w-full grid-cols-3 gap-1">
+									<Tabs.List className="grid h-12 w-full grid-cols-2 gap-1">
 										{VEHICLE_TYPE_OPTIONS.map((option) => (
 											<Tab
 												className="h-10 gap-1 rounded-lg border border-transparent px-2 text-foreground/70 text-xs transition-colors aria-selected:bg-primary aria-selected:text-primary-foreground aria-selected:ring-1 aria-selected:ring-primary/30 data-[selected]:bg-primary data-[selected]:text-primary-foreground data-[selected]:shadow-sm data-[selected]:ring-1 data-[selected]:ring-primary/30 sm:text-sm"
@@ -881,25 +901,7 @@ export function GateTab({
 												key={option.value}
 											>
 												<span aria-hidden>
-													{option.value === "BIKE" && (
-														<svg
-															aria-hidden="true"
-															className="size-4"
-															fill="none"
-															focusable="false"
-															stroke="currentColor"
-															strokeLinecap="round"
-															strokeLinejoin="round"
-															strokeWidth="1.8"
-															viewBox="0 0 24 24"
-														>
-															<circle cx="6" cy="17" r="3" />
-															<circle cx="18" cy="17" r="3" />
-															<path d="M6 17h4l4-6h3" />
-															<path d="M10 11 8 7H5" />
-															<path d="M14 11h3" />
-														</svg>
-													)}
+
 													{option.value === "LMV" && (
 														<svg
 															aria-hidden="true"
@@ -1037,6 +1039,19 @@ export function GateTab({
 					</div>
 				</div>
 			)}
+
+			<SessionDetailSheet
+				baseRate={currentBaseRate}
+				moneyFormat={lotMoneyFormat}
+				onOpenChange={setIsSessionSheetOpen}
+				onReceiptReady={onReceiptReady}
+				onViewCustomerHistory={onViewCustomerHistory}
+				open={isSessionSheetOpen}
+				operatorContext={operatorContext}
+				parkingLotName={activeLot.name}
+				session={sessionSheetTarget}
+				userId={userId}
+			/>
 		</div>
 	);
 }
